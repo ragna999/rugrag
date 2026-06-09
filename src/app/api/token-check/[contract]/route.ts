@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getBaseTrendingPools, normalizePool, getBaseNewPools } from '@/lib/geckoterminal';
+import { getBaseTrendingPools, getBaseNewPools, normalizePool, searchPools } from '@/lib/geckoterminal';
 import { getTokenByAddress, getTokensByCreator } from '@/lib/clanker';
 import { analyzeCreator } from '@/lib/scorer';
 import { getWakeAnalysis } from '@/lib/wake';
@@ -17,14 +17,15 @@ export async function GET(
     const addrLower = contract.toLowerCase();
 
     // Fetch all data in parallel
-    const [trending, newPools, wakeResult] = await Promise.all([
+    const [trending, newPools, wakeResult, searchResults] = await Promise.all([
       getBaseTrendingPools(1),
       getBaseNewPools(1),
       getWakeAnalysis(contract),
+      searchPools(contract), // search by address
     ]);
-    const allPools = [...trending, ...newPools];
 
-    // Find token in GeckoTerminal
+    // Find token in trending, new, or search results
+    const allPools = [...trending, ...newPools, ...searchResults];
     const pool = allPools.find(p => {
       const tokenId = p.relationships?.base_token?.data?.id || '';
       const tokenAddr = tokenId.replace('base_', '').toLowerCase();
