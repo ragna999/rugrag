@@ -32,7 +32,6 @@ interface WakeData {
   security: { level: string; reasons: string[] };
   breakdown: { market_signals: number; social_signals: number; contract_safety: number; deployer_quality: number; liquidity_health: number };
   narrative?: string;
-  launchProtocol?: string;
 }
 
 interface CheckResult {
@@ -75,6 +74,23 @@ function Ring({ score, label, color, sub }: { score: number; label: string; colo
   );
 }
 
+function RingEmpty({ label, sub }: { label: string; sub?: string }) {
+  return (
+    <div className="flex flex-col items-center">
+      <div className="relative w-20 h-20">
+        <svg className="w-20 h-20 -rotate-90" viewBox="0 0 72 72">
+          <circle cx="36" cy="36" r={32} fill="none" stroke="#1a1a2e" strokeWidth="5" />
+        </svg>
+        <div className="absolute inset-0 flex items-center justify-center">
+          <span className="text-xl font-bold text-gray-600">?</span>
+        </div>
+      </div>
+      <p className="text-xs font-medium mt-1 text-center text-gray-500">{label}</p>
+      {sub && <p className="text-[10px] text-gray-600 text-center">{sub}</p>}
+    </div>
+  );
+}
+
 export default function TokenPage() {
   const params = useParams();
   const address = params?.address as string;
@@ -103,7 +119,7 @@ export default function TokenPage() {
   const t = data.token;
   const m = t.market || {};
 
-  // Calculate token trading score (same as index)
+  // Trading score (same as index)
   let tradingScore = 50;
   const vol = m.volume24h || 0;
   const liq = m.liquidityUsd || 0;
@@ -114,6 +130,9 @@ export default function TokenPage() {
   if (vol > 10000) tradingScore += 5;
   if (liq > 0) { const r = vol / liq; if (r > 0.1 && r < 2) tradingScore += 5; if (r > 3) tradingScore -= 10; }
   tradingScore = Math.max(0, Math.min(100, tradingScore));
+
+  const hasCreator = data.creator && data.creator.totalTokensDeployed > 0;
+  const hasWake = data.wake && typeof data.wake.score === 'number';
 
   return (
     <div className="max-w-4xl mx-auto">
@@ -139,57 +158,46 @@ export default function TokenPage() {
         </div>
       </div>
 
-      {/* Score Comparison */}
+      {/* Scores */}
       <div className="bg-white/5 border border-white/10 rounded-2xl p-8 mb-6">
         <h2 className="text-xl font-bold mb-6">Scores</h2>
         <div className="flex items-start justify-center gap-8 flex-wrap">
-          <Ring
-            score={tradingScore}
-            label="Trading"
-            color={tradingScore >= 65 ? '#22c55e' : tradingScore >= 35 ? '#eab308' : '#ef4444'}
-            sub="Volume & liquidity"
-          />
-          {data.wake && typeof data.wake.score === 'number' && (
-            <Ring
-              score={data.wake.score}
-              label="WAKE"
-              color={data.wake.score >= 65 ? '#22c55e' : data.wake.score >= 35 ? '#eab308' : '#ef4444'}
-              sub={`Token quality (${data.wake.tier})`}
-            />
+          <Ring score={tradingScore} label="Trading" color={tradingScore >= 65 ? '#22c55e' : tradingScore >= 35 ? '#eab308' : '#ef4444'} sub="Volume & liquidity" />
+          {hasWake ? (
+            <Ring score={data.wake!.score} label="WAKE" color={data.wake!.score >= 65 ? '#22c55e' : data.wake!.score >= 35 ? '#eab308' : '#ef4444'} sub={`Token quality (${data.wake!.tier})`} />
+          ) : (
+            <RingEmpty label="WAKE" sub="Not analyzed yet" />
           )}
-          {data.creator && (
-            <Ring
-              score={data.creator.rugScore}
-              label="Creator"
-              color={data.creator.rugScore >= 65 ? '#22c55e' : data.creator.rugScore >= 35 ? '#eab308' : '#ef4444'}
-              sub={`${data.creator.verdict} deployer`}
-            />
+          {hasCreator ? (
+            <Ring score={data.creator!.rugScore} label="Creator" color={data.creator!.rugScore >= 65 ? '#22c55e' : data.creator!.rugScore >= 35 ? '#eab308' : '#ef4444'} sub={`${data.creator!.verdict} deployer`} />
+          ) : (
+            <RingEmpty label="Creator" sub="Not a Clanker token" />
           )}
         </div>
         <p className="text-xs text-gray-500 text-center mt-4">
-          Trading = market activity • WAKE = token security & quality • Creator = deployer reputation
+          Trading = market activity • WAKE = token security & quality • Creator = deployer history (Clanker tokens only)
         </p>
       </div>
 
       {/* WAKE Detail */}
-      {data.wake && typeof data.wake.score === 'number' && (
+      {hasWake && (
         <div className="bg-white/5 border border-white/10 rounded-2xl p-8 mb-6">
           <h2 className="text-lg font-bold mb-4">🦉 WAKE Breakdown</h2>
-          {data.wake.tags?.length > 0 && (
+          {data.wake!.tags?.length > 0 && (
             <div className="flex flex-wrap gap-2 mb-4">
-              {data.wake.tags.map((tag, i) => (
+              {data.wake!.tags.map((tag, i) => (
                 <span key={i} className="text-[11px] bg-white/5 border border-white/10 rounded px-2 py-0.5">{tag}</span>
               ))}
             </div>
           )}
-          {data.wake.breakdown && (
+          {data.wake!.breakdown && (
             <div className="grid grid-cols-5 gap-2 mb-4">
               {[
-                { label: 'Market', v: data.wake.breakdown.market_signals },
-                { label: 'Social', v: data.wake.breakdown.social_signals },
-                { label: 'Contract', v: data.wake.breakdown.contract_safety },
-                { label: 'Deployer', v: data.wake.breakdown.deployer_quality },
-                { label: 'Liquidity', v: data.wake.breakdown.liquidity_health },
+                { label: 'Market', v: data.wake!.breakdown.market_signals },
+                { label: 'Social', v: data.wake!.breakdown.social_signals },
+                { label: 'Contract', v: data.wake!.breakdown.contract_safety },
+                { label: 'Deployer', v: data.wake!.breakdown.deployer_quality },
+                { label: 'Liquidity', v: data.wake!.breakdown.liquidity_health },
               ].map((b, i) => (
                 <div key={i} className="text-center">
                   <div className="h-2 bg-white/10 rounded-full overflow-hidden mb-1">
@@ -201,40 +209,39 @@ export default function TokenPage() {
               ))}
             </div>
           )}
-          {data.wake.narrative && <p className="text-sm text-gray-300">{data.wake.narrative}</p>}
+          {data.wake!.narrative && <p className="text-sm text-gray-300">{data.wake!.narrative}</p>}
         </div>
       )}
 
       {/* Creator Detail */}
-      {data.creator && (
+      {hasCreator && (
         <div className="bg-white/5 border border-white/10 rounded-2xl p-8 mb-6">
           <h2 className="text-lg font-bold mb-4">Creator Analysis</h2>
           <div className="flex items-start gap-4">
             <span className={`px-3 py-1 rounded-full text-sm font-bold border ${
-              data.creator.verdict === 'LEGIT' ? 'bg-green-500/20 text-green-400 border-green-500/30' :
-              data.creator.verdict === 'RUGGER' ? 'bg-red-500/20 text-red-400 border-red-500/30' :
+              data.creator!.verdict === 'LEGIT' ? 'bg-green-500/20 text-green-400 border-green-500/30' :
+              data.creator!.verdict === 'RUGGER' ? 'bg-red-500/20 text-red-400 border-red-500/30' :
               'bg-yellow-500/20 text-yellow-400 border-yellow-500/30'
-            }`}>{data.creator.verdict}</span>
-            <a href={`/creator/${data.creator.wallet}`} className="text-sm text-gray-400 font-mono hover:text-purple-400">{data.creator.wallet}</a>
+            }`}>{data.creator!.verdict}</span>
+            <a href={`/creator/${data.creator!.wallet}`} className="text-sm text-gray-400 font-mono hover:text-purple-400">{data.creator!.wallet}</a>
           </div>
           <div className="grid grid-cols-3 gap-4 mt-4 mb-4">
-            <div><p className="text-lg font-bold">{data.creator.totalTokensDeployed}</p><p className="text-xs text-gray-500">Total Tokens</p></div>
-            <div><p className="text-lg font-bold text-green-400">{data.creator.aliveTokens}</p><p className="text-xs text-gray-500">Alive</p></div>
-            <div><p className="text-lg font-bold text-red-400">{data.creator.deadTokens}</p><p className="text-xs text-gray-500">Dead</p></div>
+            <div><p className="text-lg font-bold">{data.creator!.totalTokensDeployed}</p><p className="text-xs text-gray-500">Total Tokens</p></div>
+            <div><p className="text-lg font-bold text-green-400">{data.creator!.aliveTokens}</p><p className="text-xs text-gray-500">Alive</p></div>
+            <div><p className="text-lg font-bold text-red-400">{data.creator!.deadTokens}</p><p className="text-xs text-gray-500">Dead</p></div>
           </div>
-          {data.creator.flags?.length > 0 && (
+          {data.creator!.flags?.length > 0 && (
             <div className="flex flex-wrap gap-2">
-              {data.creator.flags.map((f, i) => (
+              {data.creator!.flags.map((f, i) => (
                 <span key={i} className="text-xs bg-white/5 border border-white/10 rounded-lg px-3 py-1.5">{f}</span>
               ))}
             </div>
           )}
-          {/* Creator's Other Tokens */}
-          {data.creator.tokens?.length > 1 && (
+          {data.creator!.tokens?.length > 1 && (
             <div className="mt-6 pt-4 border-t border-white/10">
               <p className="text-sm font-medium text-gray-400 mb-3">Other tokens by this creator</p>
               <div className="space-y-2">
-                {data.creator.tokens.filter(tk => tk.contractAddress.toLowerCase() !== address.toLowerCase()).slice(0, 5).map((tk, i) => (
+                {data.creator!.tokens.filter(tk => tk.contractAddress.toLowerCase() !== address.toLowerCase()).slice(0, 5).map((tk, i) => (
                   <a key={i} href={`/token/${tk.contractAddress}`} className="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-white/5 transition">
                     <div className="flex items-center gap-2">
                       <span className={`w-2 h-2 rounded-full ${tk.status === 'alive' ? 'bg-green-400' : tk.status === 'low-volume' ? 'bg-yellow-400' : 'bg-red-400'}`} />
@@ -250,6 +257,14 @@ export default function TokenPage() {
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* No creator info message */}
+      {!hasCreator && (
+        <div className="bg-white/5 border border-white/10 rounded-2xl p-8 mb-6">
+          <h2 className="text-lg font-bold mb-2">Creator Analysis</h2>
+          <p className="text-sm text-gray-400">Creator data only available for Clanker-deployed tokens. This token was launched on a different platform.</p>
         </div>
       )}
 
