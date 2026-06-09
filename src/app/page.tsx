@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 
 type Tab = 'all' | 'clanker' | 'bankr';
 type Sort = 'recent' | 'trending';
+type Section = 'feed' | 'smart' | 'whales';
 
 interface TokenData {
   name: string;
@@ -43,6 +44,17 @@ interface SmartMoneySignal {
   dexScreenerUrl: string;
 }
 
+interface WhaleTrade {
+  txHash: string;
+  tokenAddress: string;
+  tokenSymbol: string;
+  from: string;
+  to: string;
+  action: string;
+  blockNumber: number;
+  explorerUrl: string;
+}
+
 function formatUsd(n: number): string {
   if (!n || n === 0) return '-';
   if (n >= 1000000) return `$${(n / 1000000).toFixed(2)}M`;
@@ -76,10 +88,8 @@ function timeAgo(dateStr: string): string {
 function ScoreDot({ score }: { score: number }) {
   const color = score >= 65 ? '#22c55e' : score >= 35 ? '#eab308' : '#ef4444';
   return (
-    <span
-      className="inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold"
-      style={{ backgroundColor: `${color}20`, color }}
-    >
+    <span className="inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold"
+      style={{ backgroundColor: `${color}20`, color }}>
       {score}
     </span>
   );
@@ -90,9 +100,7 @@ function LaunchpadBadge({ launchpad }: { launchpad: string }) {
   return (
     <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
       isBankr ? 'bg-blue-500/20 text-blue-400' : 'bg-purple-500/20 text-purple-400'
-    }`}>
-      {launchpad}
-    </span>
+    }`}>{launchpad}</span>
   );
 }
 
@@ -121,22 +129,26 @@ export default function Home() {
   const [sort, setSort] = useState<Sort>('recent');
   const [tokens, setTokens] = useState<TokenData[]>([]);
   const [signals, setSignals] = useState<SmartMoneySignal[]>([]);
+  const [whaleTrades, setWhaleTrades] = useState<WhaleTrade[]>([]);
   const [loading, setLoading] = useState(true);
   const [lastUpdate, setLastUpdate] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
-  const [searchMode, setSearchMode] = useState<'creator' | 'token'>('creator');
-  const [activeSection, setActiveSection] = useState<'feed' | 'smart'>('feed');
+  const [searchMode, setSearchMode] = useState<'creator' | 'token' | 'wallet'>('creator');
+  const [activeSection, setActiveSection] = useState<Section>('feed');
 
   const fetchData = useCallback(async () => {
     try {
-      const [indexRes, smartRes] = await Promise.all([
+      const [indexRes, smartRes, whaleRes] = await Promise.all([
         fetch(`/api/index?filter=${tab}&sort=${sort}&limit=30`),
         fetch('/api/smart-money'),
+        fetch('/api/whale-tracker?limit=15'),
       ]);
       const indexData = await indexRes.json();
       const smartData = await smartRes.json();
+      const whaleData = await whaleRes.json();
       setTokens(indexData.tokens || []);
       setSignals(smartData.signals || []);
+      setWhaleTrades(whaleData.trades || []);
       setLastUpdate(new Date().toLocaleTimeString());
     } catch (e) {
       console.error('Fetch error:', e);
@@ -154,16 +166,15 @@ export default function Home() {
 
   const handleSearch = () => {
     if (!searchQuery.trim()) return;
-    window.location.href = searchMode === 'token'
-      ? `/token/${searchQuery.trim()}`
-      : `/creator/${searchQuery.trim()}`;
+    const q = searchQuery.trim();
+    if (searchMode === 'token') window.location.href = `/token/${q}`;
+    else if (searchMode === 'wallet') window.location.href = `/wallet/${q}`;
+    else window.location.href = `/creator/${q}`;
   };
 
   const totalMcap = tokens.reduce((s, t) => s + t.market.mcap, 0);
   const totalVol = tokens.reduce((s, t) => s + t.market.volume24h, 0);
-  const avgScore = tokens.length > 0
-    ? Math.round(tokens.reduce((s, t) => s + t.creatorScore, 0) / tokens.length)
-    : 0;
+  const avgScore = tokens.length > 0 ? Math.round(tokens.reduce((s, t) => s + t.creatorScore, 0) / tokens.length) : 0;
   const bullishCount = signals.filter(s => s.sentimentType === 'bullish').length;
 
   return (
@@ -179,19 +190,17 @@ export default function Home() {
       {/* Search */}
       <div className="max-w-2xl mx-auto mb-8">
         <div className="flex gap-2 mb-3 justify-center">
-          <button onClick={() => setSearchMode('creator')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition ${searchMode === 'creator' ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30' : 'bg-white/5 text-gray-500 border border-white/10'}`}>
-            🔍 Creator
-          </button>
-          <button onClick={() => setSearchMode('token')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition ${searchMode === 'token' ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30' : 'bg-white/5 text-gray-500 border border-white/10'}`}>
-            🪙 Token
-          </button>
+          {(['creator', 'token', 'wallet'] as const).map(m => (
+            <button key={m} onClick={() => setSearchMode(m)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition ${searchMode === m ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30' : 'bg-white/5 text-gray-500 border border-white/10'}`}>
+              {m === 'creator' ? '🔍 Creator' : m === 'token' ? '🪙 Token' : '🦊 Wallet'}
+            </button>
+          ))}
         </div>
         <div className="flex gap-2">
           <input type="text" value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && handleSearch()}
-            placeholder={searchMode === 'creator' ? 'Search creator (0x... or Farcaster name)' : 'Search token (0x...)'}
+            placeholder={searchMode === 'creator' ? 'Creator (0x... or Farcaster)' : searchMode === 'token' ? 'Token contract (0x...)' : 'Wallet address (0x...)'}
             className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-purple-500/50 transition" />
           <button onClick={handleSearch}
             className="bg-purple-600 hover:bg-purple-700 text-white px-5 py-3 rounded-xl text-sm font-medium transition">
@@ -200,7 +209,7 @@ export default function Home() {
         </div>
       </div>
 
-      {/* Stats Bar */}
+      {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-8">
         {[
           { label: 'Tokens Indexed', value: tokens.length.toString() },
@@ -219,22 +228,23 @@ export default function Home() {
       {/* Section Tabs */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex gap-1 bg-white/5 rounded-lg p-1">
-          <button onClick={() => setActiveSection('feed')}
-            className={`px-4 py-2 rounded-md text-sm font-medium transition ${activeSection === 'feed' ? 'bg-purple-600 text-white' : 'text-gray-400 hover:text-white'}`}>
-            📊 Token Feed
-          </button>
-          <button onClick={() => setActiveSection('smart')}
-            className={`px-4 py-2 rounded-md text-sm font-medium transition ${activeSection === 'smart' ? 'bg-purple-600 text-white' : 'text-gray-400 hover:text-white'}`}>
-            🧠 Smart Money
-          </button>
+          {([
+            { key: 'feed' as Section, icon: '📊', label: 'Token Feed' },
+            { key: 'smart' as Section, icon: '🧠', label: 'Smart Money' },
+            { key: 'whales' as Section, icon: '🐋', label: 'Whale Activity' },
+          ]).map(s => (
+            <button key={s.key} onClick={() => setActiveSection(s.key)}
+              className={`px-4 py-2 rounded-md text-sm font-medium transition ${activeSection === s.key ? 'bg-purple-600 text-white' : 'text-gray-400 hover:text-white'}`}>
+              {s.icon} {s.label}
+            </button>
+          ))}
         </div>
         <span className="text-[10px] text-gray-600">{lastUpdate ? `Updated ${lastUpdate}` : ''}</span>
       </div>
 
-      {/* TOKEN FEED SECTION */}
+      {/* ===== TOKEN FEED ===== */}
       {activeSection === 'feed' && (
         <div>
-          {/* Filter Controls */}
           <div className="flex items-center justify-between mb-4">
             <div className="flex gap-1">
               {(['all', 'clanker', 'bankr'] as Tab[]).map(t => (
@@ -254,7 +264,6 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Token Table */}
           {loading && tokens.length === 0 ? (
             <div className="text-center py-20 text-gray-500">Loading index...</div>
           ) : (
@@ -281,10 +290,7 @@ export default function Home() {
                       </div>
                     </div>
                     <span className="text-sm">{formatUsd(token.market.mcap)}</span>
-                    <div>
-                      <p className="text-sm">{formatPrice(token.market.price)}</p>
-                      <PriceChange value={token.market.priceChange24h} />
-                    </div>
+                    <div><p className="text-sm">{formatPrice(token.market.price)}</p><PriceChange value={token.market.priceChange24h} /></div>
                     <span className="text-sm">{formatUsd(token.market.volume24h)}</span>
                     <span className="text-sm">{formatUsd(token.market.liquidityUsd)}</span>
                     <ScoreDot score={token.creatorScore} />
@@ -292,19 +298,17 @@ export default function Home() {
                   </a>
                 ))}
               </div>
-              {tokens.length === 0 && !loading && (
-                <div className="text-center py-16 text-gray-500">No tokens found</div>
-              )}
+              {tokens.length === 0 && !loading && <div className="text-center py-16 text-gray-500">No tokens found</div>}
             </div>
           )}
         </div>
       )}
 
-      {/* SMART MONEY SECTION */}
+      {/* ===== SMART MONEY ===== */}
       {activeSection === 'smart' && (
         <div>
           {loading && signals.length === 0 ? (
-            <div className="text-center py-20 text-gray-500">Loading smart money data...</div>
+            <div className="text-center py-20 text-gray-500">Loading smart money...</div>
           ) : (
             <div className="bg-white/[0.03] border border-white/10 rounded-2xl overflow-hidden">
               <div className="grid grid-cols-[1fr_90px_80px_90px_60px_100px] md:grid-cols-[1fr_100px_90px_100px_80px_80px_120px] gap-2 px-4 py-3 border-b border-white/10 text-[11px] text-gray-500 font-medium uppercase tracking-wider">
@@ -314,10 +318,7 @@ export default function Home() {
                 {signals.map((sig, i) => (
                   <a key={i} href={`/token/${sig.token.address}`}
                     className="grid grid-cols-[1fr_90px_80px_90px_60px_100px] md:grid-cols-[1fr_100px_90px_100px_80px_80px_120px] gap-2 px-4 py-3 hover:bg-white/[0.03] transition items-center group">
-                    <div>
-                      <span className="font-medium text-sm group-hover:text-purple-400 transition">{sig.token.symbol}</span>
-                      <p className="text-[11px] text-gray-500 truncate">{sig.token.name}</p>
-                    </div>
+                    <div><span className="font-medium text-sm group-hover:text-purple-400 transition">{sig.token.symbol}</span><p className="text-[11px] text-gray-500 truncate">{sig.token.name}</p></div>
                     <span className="text-sm">{sig.price ? `$${parseFloat(sig.price).toFixed(6)}` : '-'}</span>
                     <PriceChange value={sig.priceChange24h} />
                     <span className="text-sm">{formatUsd(sig.volume24h)}</span>
@@ -334,26 +335,60 @@ export default function Home() {
                   </a>
                 ))}
               </div>
-              {signals.length === 0 && !loading && (
-                <div className="text-center py-16 text-gray-500">No smart money signals</div>
-              )}
+              {signals.length === 0 && !loading && <div className="text-center py-16 text-gray-500">No signals</div>}
             </div>
           )}
-
-          {/* Tracked Wallets Info */}
           <div className="mt-6 bg-white/5 border border-white/10 rounded-xl p-4">
-            <p className="text-sm text-gray-400 mb-2">
-              🧠 <strong>Smart Money Score</strong> — Token-level analysis based on buy/sell pressure, volume/liquidity ratio, price momentum, and liquidity health.
-            </p>
-            <p className="text-xs text-gray-500">
-              Score 65+ = potential smart money interest. Score 35- = avoid. Data from DexScreener. Auto-refreshes every 30s.
-            </p>
+            <p className="text-sm text-gray-400">🧠 Smart Money Score based on buy/sell pressure, volume/liquidity ratio, price momentum, and liquidity health. Score 65+ = potential smart money interest.</p>
+          </div>
+        </div>
+      )}
+
+      {/* ===== WHALE ACTIVITY ===== */}
+      {activeSection === 'whales' && (
+        <div>
+          {loading && whaleTrades.length === 0 ? (
+            <div className="text-center py-20 text-gray-500">Scanning on-chain activity...</div>
+          ) : whaleTrades.length > 0 ? (
+            <div className="bg-white/[0.03] border border-white/10 rounded-2xl overflow-hidden">
+              <div className="grid grid-cols-[1fr_120px_120px_100px] gap-2 px-4 py-3 border-b border-white/10 text-[11px] text-gray-500 font-medium uppercase tracking-wider">
+                <span>Token</span><span>From</span><span>To</span><span>Tx</span>
+              </div>
+              <div className="divide-y divide-white/5">
+                {whaleTrades.map((trade, i) => (
+                  <div key={i} className="grid grid-cols-[1fr_120px_120px_100px] gap-2 px-4 py-3 hover:bg-white/[0.03] transition items-center">
+                    <div>
+                      <span className="font-medium text-sm">{trade.tokenSymbol}</span>
+                      <p className="text-[11px] text-gray-500">Block #{trade.blockNumber}</p>
+                    </div>
+                    <a href={`/wallet/${trade.from}`} className="text-xs font-mono text-gray-400 hover:text-purple-400 transition">
+                      {trade.from}
+                    </a>
+                    <a href={`/wallet/${trade.to}`} className="text-xs font-mono text-gray-400 hover:text-purple-400 transition">
+                      {trade.to}
+                    </a>
+                    <a href={trade.explorerUrl} target="_blank" rel="noopener noreferrer"
+                      className="text-xs text-purple-400 hover:text-purple-300 transition">
+                      View ↗
+                    </a>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="text-center py-20 text-gray-500">
+              <p className="text-lg mb-2">No recent whale activity detected</p>
+              <p className="text-sm">Monitoring on-chain transfers on recent Clanker tokens</p>
+            </div>
+          )}
+          <div className="mt-6 bg-white/5 border border-white/10 rounded-xl p-4">
+            <p className="text-sm text-gray-400">🐋 Whale Activity tracks recent on-chain transfers on Clanker tokens via Base RPC. Click wallet addresses to view their full profile.</p>
           </div>
         </div>
       )}
 
       <p className="text-center text-[11px] text-gray-600 mt-6">
-        Auto-refreshes every 30s • Data from Clanker + DexScreener • Built by Ragna
+        Auto-refreshes every 30s • Data from Clanker + DexScreener + Base RPC • Built by Ragna
       </p>
     </div>
   );
