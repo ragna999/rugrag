@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getBaseTrendingPools, normalizePool, getBaseNewPools } from '@/lib/geckoterminal';
 import { getTokenByAddress, getTokensByCreator } from '@/lib/clanker';
 import { analyzeCreator } from '@/lib/scorer';
+import { getWakeAnalysis } from '@/lib/wake';
 
 export async function GET(
   request: NextRequest,
@@ -15,14 +16,15 @@ export async function GET(
 
     const addrLower = contract.toLowerCase();
 
-    // Try GeckoTerminal first (trending + new pools)
-    const [trending, newPools] = await Promise.all([
+    // Fetch all data in parallel
+    const [trending, newPools, wakeResult] = await Promise.all([
       getBaseTrendingPools(1),
       getBaseNewPools(1),
+      getWakeAnalysis(contract),
     ]);
     const allPools = [...trending, ...newPools];
 
-    // Find the pool where base token matches
+    // Find token in GeckoTerminal
     const pool = allPools.find(p => {
       const tokenId = p.relationships?.base_token?.data?.id || '';
       const tokenAddr = tokenId.replace('base_', '').toLowerCase();
@@ -33,7 +35,7 @@ export async function GET(
     if (pool) {
       token = normalizePool(pool);
     } else {
-      // Fallback: try Clanker API
+      // Fallback: Clanker API
       try {
         const clankerToken = await getTokenByAddress(contract);
         if (clankerToken) {
@@ -63,16 +65,14 @@ export async function GET(
             gtUrl: '',
           };
         }
-      } catch {
-        // ignore
-      }
+      } catch { /* ignore */ }
     }
 
     if (!token) {
       return NextResponse.json({ error: 'Token not found' }, { status: 404 });
     }
 
-    // Try to find creator info from Clanker
+    // Creator info from Clanker
     let creator = null;
     try {
       const clankerToken = await getTokenByAddress(contract);
@@ -88,9 +88,21 @@ export async function GET(
           } : undefined
         );
       }
-    } catch {
-      // ignore — creator info is optional
-    }
+    } catch { /* ignore */ }
+
+    // WAKE data
+    const wake = wakeResult ? {
+      score: wakeResult.score,
+      tier: wakeResult.tier,
+      tags: wakeResult.tags,
+      security: {
+        level: wakeResult.security_advisory?.level || 'unknown',
+        reasons: wakeResult.security_advisory?.reasons || [],
+      },
+      breakdown: wakeResult.breakdown,
+      narrative: wakeResult.narrative,
+      launchProtocol: wakeResult.launch_protocol,
+    } : null;
 
     return NextResponse.json({
       token: {
@@ -105,6 +117,7 @@ export async function GET(
         gtUrl: token.gtUrl,
       },
       creator,
+      wake,
     }, {
       headers: {
         'Cache-Control': 'public, s-maxage=30, stale-while-revalidate=60',
