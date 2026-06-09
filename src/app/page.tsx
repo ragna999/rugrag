@@ -44,146 +44,123 @@ interface SmartMoneySignal {
   dexScreenerUrl: string;
 }
 
-interface WhaleTrade {
-  txHash: string;
-  tokenAddress: string;
+interface WhaleActivity {
   tokenSymbol: string;
-  from: string;
-  to: string;
-  action: string;
-  blockNumber: number;
-  explorerUrl: string;
+  tokenName: string;
+  tokenAddress: string;
+  volume24h: number;
+  buys24h: number;
+  sells24h: number;
+  buyPressure: number;
+  sentiment: string;
+  sentimentType: string;
+  liquidity: number;
+  priceChange24h: number;
+  price: string;
+  dexScreenerUrl: string;
 }
 
-function formatUsd(n: number): string {
+function fmt(n: number): string {
   if (!n || n === 0) return '-';
   if (n >= 1000000) return `$${(n / 1000000).toFixed(2)}M`;
   if (n >= 1000) return `$${(n / 1000).toFixed(1)}K`;
   if (n >= 1) return `$${n.toFixed(2)}`;
-  if (n >= 0.0001) return `$${n.toFixed(6)}`;
-  return `$${n.toExponential(2)}`;
+  return `$${n.toFixed(6)}`;
 }
 
-function formatPrice(n: number): string {
+function fmtPrice(n: number): string {
   if (!n || n === 0) return '-';
   if (n >= 1) return `$${n.toFixed(4)}`;
   if (n >= 0.0001) return `$${n.toFixed(6)}`;
-  if (n >= 0.000001) return `$${n.toFixed(8)}`;
-  return `$${n.toExponential(2)}`;
+  return `$${n.toFixed(8)}`;
 }
 
-function timeAgo(dateStr: string): string {
-  const now = Date.now();
-  const then = new Date(dateStr).getTime();
-  const diff = now - then;
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
+function timeAgo(d: string): string {
+  const diff = Date.now() - new Date(d).getTime();
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return 'now';
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h`;
+  return `${Math.floor(h / 24)}d`;
 }
 
-function ScoreDot({ score }: { score: number }) {
-  const color = score >= 65 ? '#22c55e' : score >= 35 ? '#eab308' : '#ef4444';
+function Score({ v }: { v: number }) {
+  const c = v >= 65 ? '#22c55e' : v >= 35 ? '#eab308' : '#ef4444';
+  return <span className="inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold" style={{ backgroundColor: `${c}20`, color: c }}>{v}</span>;
+}
+
+function Badge({ text, color }: { text: string; color: string }) {
+  return <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${color}`}>{text}</span>;
+}
+
+function Chg({ v }: { v: number }) {
+  if (!v) return <span className="text-gray-600">-</span>;
+  return <span className={v >= 0 ? 'text-green-400' : 'text-red-400'}>{v >= 0 ? '+' : ''}{v.toFixed(1)}%</span>;
+}
+
+function Bar({ pct }: { pct: number }) {
   return (
-    <span className="inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold"
-      style={{ backgroundColor: `${color}20`, color }}>
-      {score}
-    </span>
-  );
-}
-
-function LaunchpadBadge({ launchpad }: { launchpad: string }) {
-  const isBankr = launchpad === 'Bankr';
-  return (
-    <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
-      isBankr ? 'bg-blue-500/20 text-blue-400' : 'bg-purple-500/20 text-purple-400'
-    }`}>{launchpad}</span>
-  );
-}
-
-function PriceChange({ value }: { value: number }) {
-  if (!value) return <span className="text-gray-500">-</span>;
-  const color = value >= 0 ? 'text-green-400' : 'text-red-400';
-  const arrow = value >= 0 ? '↑' : '↓';
-  return <span className={color}>{arrow}{Math.abs(value).toFixed(1)}%</span>;
-}
-
-function SentimentBadge({ sentiment, type }: { sentiment: string; type: string }) {
-  const colors: Record<string, string> = {
-    bullish: 'bg-green-500/10 text-green-400 border-green-500/20',
-    bearish: 'bg-red-500/10 text-red-400 border-red-500/20',
-    neutral: 'bg-gray-500/10 text-gray-400 border-gray-500/20',
-  };
-  return (
-    <span className={`px-2 py-0.5 rounded text-[10px] border ${colors[type] || colors.neutral}`}>
-      {sentiment}
-    </span>
+    <div className="flex items-center gap-2">
+      <span className="text-green-400 text-xs">{pct}%</span>
+      <div className="flex-1 h-1.5 bg-white/10 rounded-full overflow-hidden">
+        <div className="h-full bg-green-500 rounded-full" style={{ width: `${pct}%` }} />
+      </div>
+    </div>
   );
 }
 
 export default function Home() {
   const [tab, setTab] = useState<Tab>('all');
-  const [sort, setSort] = useState<Sort>('recent');
+  const [sort, setSort] = useState<Sort>('trending');
   const [tokens, setTokens] = useState<TokenData[]>([]);
   const [signals, setSignals] = useState<SmartMoneySignal[]>([]);
-  const [whaleTrades, setWhaleTrades] = useState<WhaleTrade[]>([]);
+  const [whales, setWhales] = useState<WhaleActivity[]>([]);
   const [loading, setLoading] = useState(true);
-  const [lastUpdate, setLastUpdate] = useState('');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchMode, setSearchMode] = useState<'creator' | 'token' | 'wallet'>('creator');
-  const [activeSection, setActiveSection] = useState<Section>('feed');
+  const [updated, setUpdated] = useState('');
+  const [q, setQ] = useState('');
+  const [qMode, setQMode] = useState<'creator' | 'token' | 'wallet'>('creator');
+  const [sec, setSec] = useState<Section>('feed');
 
-  const fetchData = useCallback(async () => {
+  const load = useCallback(async () => {
     try {
-      const [indexRes, smartRes, whaleRes] = await Promise.all([
-        fetch(`/api/index?filter=${tab}&sort=${sort}&limit=30`),
-        fetch('/api/smart-money'),
-        fetch('/api/whale-tracker?limit=15'),
+      const [i, s, w] = await Promise.all([
+        fetch(`/api/index?filter=${tab}&sort=${sort}&limit=30`).then(r => r.json()),
+        fetch('/api/smart-money').then(r => r.json()),
+        fetch('/api/whale-tracker').then(r => r.json()),
       ]);
-      const indexData = await indexRes.json();
-      const smartData = await smartRes.json();
-      const whaleData = await whaleRes.json();
-      setTokens(indexData.tokens || []);
-      setSignals(smartData.signals || []);
-      setWhaleTrades(whaleData.trades || []);
-      setLastUpdate(new Date().toLocaleTimeString());
-    } catch (e) {
-      console.error('Fetch error:', e);
-    } finally {
-      setLoading(false);
-    }
+      setTokens(i.tokens || []);
+      setSignals(s.signals || []);
+      setWhales(w.activity || []);
+      setUpdated(new Date().toLocaleTimeString());
+    } catch (e) { console.error(e); }
+    finally { setLoading(false); }
   }, [tab, sort]);
 
   useEffect(() => {
     setLoading(true);
-    fetchData();
-    const interval = setInterval(fetchData, 30000);
-    return () => clearInterval(interval);
-  }, [fetchData]);
+    load();
+    const iv = setInterval(load, 30000);
+    return () => clearInterval(iv);
+  }, [load]);
 
-  const handleSearch = () => {
-    if (!searchQuery.trim()) return;
-    const q = searchQuery.trim();
-    if (searchMode === 'token') window.location.href = `/token/${q}`;
-    else if (searchMode === 'wallet') window.location.href = `/wallet/${q}`;
-    else window.location.href = `/creator/${q}`;
+  const search = () => {
+    if (!q.trim()) return;
+    const v = q.trim();
+    if (qMode === 'token') location.href = `/token/${v}`;
+    else if (qMode === 'wallet') location.href = `/wallet/${v}`;
+    else location.href = `/creator/${v}`;
   };
 
-  const totalMcap = tokens.reduce((s, t) => s + t.market.mcap, 0);
   const totalVol = tokens.reduce((s, t) => s + t.market.volume24h, 0);
-  const avgScore = tokens.length > 0 ? Math.round(tokens.reduce((s, t) => s + t.creatorScore, 0) / tokens.length) : 0;
-  const bullishCount = signals.filter(s => s.sentimentType === 'bullish').length;
+  const avgScore = tokens.length ? Math.round(tokens.reduce((s, t) => s + t.creatorScore, 0) / tokens.length) : 0;
+  const bullish = signals.filter(s => s.sentimentType === 'bullish').length;
 
   return (
     <div>
       {/* Header */}
       <div className="text-center mb-8">
-        <h1 className="text-5xl font-bold mb-2">
-          <span className="text-purple-400">RUG</span><span>RAG</span>
-        </h1>
+        <h1 className="text-5xl font-bold mb-2"><span className="text-purple-400">RUG</span>RAG</h1>
         <p className="text-gray-400 text-lg">Check Before You Ape 🦧</p>
       </div>
 
@@ -191,59 +168,55 @@ export default function Home() {
       <div className="max-w-2xl mx-auto mb-8">
         <div className="flex gap-2 mb-3 justify-center">
           {(['creator', 'token', 'wallet'] as const).map(m => (
-            <button key={m} onClick={() => setSearchMode(m)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition ${searchMode === m ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30' : 'bg-white/5 text-gray-500 border border-white/10'}`}>
+            <button key={m} onClick={() => setQMode(m)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition ${qMode === m ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30' : 'bg-white/5 text-gray-500 border border-white/10'}`}>
               {m === 'creator' ? '🔍 Creator' : m === 'token' ? '🪙 Token' : '🦊 Wallet'}
             </button>
           ))}
         </div>
         <div className="flex gap-2">
-          <input type="text" value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && handleSearch()}
-            placeholder={searchMode === 'creator' ? 'Creator (0x... or Farcaster)' : searchMode === 'token' ? 'Token contract (0x...)' : 'Wallet address (0x...)'}
-            className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-purple-500/50 transition" />
-          <button onClick={handleSearch}
-            className="bg-purple-600 hover:bg-purple-700 text-white px-5 py-3 rounded-xl text-sm font-medium transition">
-            Search
-          </button>
+          <input value={q} onChange={e => setQ(e.target.value)} onKeyDown={e => e.key === 'Enter' && search()}
+            placeholder={qMode === 'creator' ? '0x... or Farcaster name' : qMode === 'token' ? 'Token contract 0x...' : 'Wallet 0x...'}
+            className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-purple-500/50" />
+          <button onClick={search} className="bg-purple-600 hover:bg-purple-700 text-white px-5 py-3 rounded-xl text-sm font-medium">Search</button>
         </div>
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-8">
-        {[
-          { label: 'Tokens Indexed', value: tokens.length.toString() },
-          { label: 'Total MCap', value: formatUsd(totalMcap) },
-          { label: '24h Volume', value: formatUsd(totalVol) },
-          { label: 'Avg Score', value: avgScore.toString() },
-          { label: 'Bullish Signals', value: bullishCount.toString() },
-        ].map((stat, i) => (
-          <div key={i} className="bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-center">
-            <p className="text-lg font-bold">{stat.value}</p>
-            <p className="text-[11px] text-gray-500">{stat.label}</p>
-          </div>
-        ))}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-8">
+        <div className="bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-center">
+          <p className="text-lg font-bold">{tokens.length}</p><p className="text-[11px] text-gray-500">Active Tokens</p>
+        </div>
+        <div className="bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-center">
+          <p className="text-lg font-bold">{fmt(totalVol)}</p><p className="text-[11px] text-gray-500">24h Volume</p>
+        </div>
+        <div className="bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-center">
+          <p className="text-lg font-bold">{avgScore}</p><p className="text-[11px] text-gray-500">Avg Score</p>
+        </div>
+        <div className="bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-center">
+          <p className="text-lg font-bold text-green-400">{bullish}</p><p className="text-[11px] text-gray-500">Bullish Signals</p>
+        </div>
       </div>
 
       {/* Section Tabs */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex gap-1 bg-white/5 rounded-lg p-1">
           {([
-            { key: 'feed' as Section, icon: '📊', label: 'Token Feed' },
-            { key: 'smart' as Section, icon: '🧠', label: 'Smart Money' },
-            { key: 'whales' as Section, icon: '🐋', label: 'Whale Activity' },
+            { k: 'feed' as Section, i: '📊', l: 'Token Feed' },
+            { k: 'smart' as Section, i: '🧠', l: 'Smart Money' },
+            { k: 'whales' as Section, i: '🐋', l: 'Whale Activity' },
           ]).map(s => (
-            <button key={s.key} onClick={() => setActiveSection(s.key)}
-              className={`px-4 py-2 rounded-md text-sm font-medium transition ${activeSection === s.key ? 'bg-purple-600 text-white' : 'text-gray-400 hover:text-white'}`}>
-              {s.icon} {s.label}
+            <button key={s.k} onClick={() => setSec(s.k)}
+              className={`px-4 py-2 rounded-md text-sm font-medium transition ${sec === s.k ? 'bg-purple-600 text-white' : 'text-gray-400 hover:text-white'}`}>
+              {s.i} {s.l}
             </button>
           ))}
         </div>
-        <span className="text-[10px] text-gray-600">{lastUpdate ? `Updated ${lastUpdate}` : ''}</span>
+        <span className="text-[10px] text-gray-600">{updated ? `Updated ${updated}` : ''}</span>
       </div>
 
       {/* ===== TOKEN FEED ===== */}
-      {activeSection === 'feed' && (
+      {sec === 'feed' && (
         <div>
           <div className="flex items-center justify-between mb-4">
             <div className="flex gap-1">
@@ -265,131 +238,117 @@ export default function Home() {
           </div>
 
           {loading && tokens.length === 0 ? (
-            <div className="text-center py-20 text-gray-500">Loading index...</div>
+            <div className="text-center py-20 text-gray-500">Loading...</div>
+          ) : tokens.length === 0 ? (
+            <div className="text-center py-20 text-gray-500">No active tokens found</div>
           ) : (
             <div className="bg-white/[0.03] border border-white/10 rounded-2xl overflow-hidden">
-              <div className="grid grid-cols-[1fr_80px_100px_90px_90px_60px_70px] md:grid-cols-[1fr_90px_110px_100px_100px_80px_80px] gap-2 px-4 py-3 border-b border-white/10 text-[11px] text-gray-500 font-medium uppercase tracking-wider">
+              <div className="hidden md:grid md:grid-cols-[1fr_100px_110px_100px_100px_80px_80px] gap-2 px-4 py-3 border-b border-white/10 text-[11px] text-gray-500 font-medium uppercase tracking-wider">
                 <span>Token</span><span>MCap</span><span>Price</span><span>24h Vol</span><span>Liq</span><span>Score</span><span>Age</span>
               </div>
               <div className="divide-y divide-white/5">
-                {tokens.map((token, i) => (
-                  <a key={`${token.contractAddress}-${i}`} href={`/token/${token.contractAddress}`}
-                    className="grid grid-cols-[1fr_80px_100px_90px_90px_60px_70px] md:grid-cols-[1fr_90px_110px_100px_100px_80px_80px] gap-2 px-4 py-3 hover:bg-white/[0.03] transition items-center group">
+                {tokens.map((t, i) => (
+                  <a key={`${t.contractAddress}-${i}`} href={`/token/${t.contractAddress}`}
+                    className="grid grid-cols-[1fr_80px_100px_90px_90px_60px_70px] md:grid-cols-[1fr_100px_110px_100px_100px_80px_80px] gap-2 px-4 py-3 hover:bg-white/[0.03] transition items-center group">
                     <div className="flex items-center gap-3 min-w-0">
-                      {token.img ? (
-                        <img src={token.img} alt="" className="w-8 h-8 rounded-full bg-white/10 flex-shrink-0" />
-                      ) : (
-                        <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-xs flex-shrink-0">{token.symbol?.slice(0, 2)}</div>
-                      )}
+                      {t.img ? <img src={t.img} alt="" className="w-8 h-8 rounded-full bg-white/10 shrink-0" />
+                        : <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-xs shrink-0">{t.symbol?.slice(0, 2)}</div>}
                       <div className="min-w-0">
                         <div className="flex items-center gap-2">
-                          <span className="font-medium text-sm truncate group-hover:text-purple-400 transition">{token.symbol}</span>
-                          <LaunchpadBadge launchpad={token.launchpad} />
+                          <span className="font-medium text-sm truncate group-hover:text-purple-400 transition">{t.symbol}</span>
+                          <Badge text={t.launchpad} color={t.launchpad === 'Bankr' ? 'bg-blue-500/20 text-blue-400' : 'bg-purple-500/20 text-purple-400'} />
                         </div>
-                        <p className="text-[11px] text-gray-500 truncate">{token.name}</p>
+                        <p className="text-[11px] text-gray-500 truncate">{t.name}</p>
                       </div>
                     </div>
-                    <span className="text-sm">{formatUsd(token.market.mcap)}</span>
-                    <div><p className="text-sm">{formatPrice(token.market.price)}</p><PriceChange value={token.market.priceChange24h} /></div>
-                    <span className="text-sm">{formatUsd(token.market.volume24h)}</span>
-                    <span className="text-sm">{formatUsd(token.market.liquidityUsd)}</span>
-                    <ScoreDot score={token.creatorScore} />
-                    <span className="text-[11px] text-gray-500">{timeAgo(token.deployedAt)}</span>
+                    <span className="text-sm">{fmt(t.market.mcap)}</span>
+                    <div><p className="text-sm">{fmtPrice(t.market.price)}</p><Chg v={t.market.priceChange24h} /></div>
+                    <span className="text-sm">{fmt(t.market.volume24h)}</span>
+                    <span className="text-sm">{fmt(t.market.liquidityUsd)}</span>
+                    <Score v={t.creatorScore} />
+                    <span className="text-[11px] text-gray-500">{timeAgo(t.deployedAt)}</span>
                   </a>
                 ))}
               </div>
-              {tokens.length === 0 && !loading && <div className="text-center py-16 text-gray-500">No tokens found</div>}
             </div>
           )}
         </div>
       )}
 
       {/* ===== SMART MONEY ===== */}
-      {activeSection === 'smart' && (
+      {sec === 'smart' && (
         <div>
           {loading && signals.length === 0 ? (
-            <div className="text-center py-20 text-gray-500">Loading smart money...</div>
+            <div className="text-center py-20 text-gray-500">Loading...</div>
+          ) : signals.length === 0 ? (
+            <div className="text-center py-20 text-gray-500">No signals</div>
           ) : (
             <div className="bg-white/[0.03] border border-white/10 rounded-2xl overflow-hidden">
-              <div className="grid grid-cols-[1fr_90px_80px_90px_60px_100px] md:grid-cols-[1fr_100px_90px_100px_80px_80px_120px] gap-2 px-4 py-3 border-b border-white/10 text-[11px] text-gray-500 font-medium uppercase tracking-wider">
+              <div className="hidden md:grid md:grid-cols-[1fr_100px_90px_100px_80px_100px_120px] gap-2 px-4 py-3 border-b border-white/10 text-[11px] text-gray-500 font-medium uppercase tracking-wider">
                 <span>Token</span><span>Price</span><span>24h</span><span>Volume</span><span>Score</span><span>Sentiment</span><span>Buys/Sells</span>
               </div>
               <div className="divide-y divide-white/5">
-                {signals.map((sig, i) => (
-                  <a key={i} href={`/token/${sig.token.address}`}
-                    className="grid grid-cols-[1fr_90px_80px_90px_60px_100px] md:grid-cols-[1fr_100px_90px_100px_80px_80px_120px] gap-2 px-4 py-3 hover:bg-white/[0.03] transition items-center group">
-                    <div><span className="font-medium text-sm group-hover:text-purple-400 transition">{sig.token.symbol}</span><p className="text-[11px] text-gray-500 truncate">{sig.token.name}</p></div>
-                    <span className="text-sm">{sig.price ? `$${parseFloat(sig.price).toFixed(6)}` : '-'}</span>
-                    <PriceChange value={sig.priceChange24h} />
-                    <span className="text-sm">{formatUsd(sig.volume24h)}</span>
-                    <ScoreDot score={sig.smartMoneyScore} />
-                    <SentimentBadge sentiment={sig.sentiment} type={sig.sentimentType} />
+                {signals.map((s, i) => (
+                  <a key={i} href={`/token/${s.token.address}`}
+                    className="grid grid-cols-[1fr_90px_80px_90px_60px_100px] md:grid-cols-[1fr_100px_90px_100px_80px_100px_120px] gap-2 px-4 py-3 hover:bg-white/[0.03] transition items-center group">
+                    <div><span className="font-medium text-sm group-hover:text-purple-400">{s.token.symbol}</span><p className="text-[11px] text-gray-500 truncate">{s.token.name}</p></div>
+                    <span className="text-sm">{s.price ? `$${parseFloat(s.price).toFixed(6)}` : '-'}</span>
+                    <Chg v={s.priceChange24h} />
+                    <span className="text-sm">{fmt(s.volume24h)}</span>
+                    <Score v={s.smartMoneyScore} />
+                    <span className={`px-2 py-0.5 rounded text-[10px] border ${s.sentimentType === 'bullish' ? 'bg-green-500/10 text-green-400 border-green-500/20' : s.sentimentType === 'bearish' ? 'bg-red-500/10 text-red-400 border-red-500/20' : 'bg-gray-500/10 text-gray-400 border-gray-500/20'}`}>{s.sentiment}</span>
                     <div className="flex items-center gap-2">
-                      <span className="text-green-400 text-xs">{sig.buys24h}B</span>
+                      <span className="text-green-400 text-xs">{s.buys24h}B</span>
                       <span className="text-gray-600">/</span>
-                      <span className="text-red-400 text-xs">{sig.sells24h}S</span>
-                      <div className="flex-1 h-1.5 bg-white/10 rounded-full overflow-hidden">
-                        <div className="h-full bg-green-500 rounded-full" style={{ width: `${sig.buyPressure}%` }} />
-                      </div>
+                      <span className="text-red-400 text-xs">{s.sells24h}S</span>
+                      <div className="flex-1 h-1.5 bg-white/10 rounded-full overflow-hidden"><div className="h-full bg-green-500 rounded-full" style={{ width: `${s.buyPressure}%` }} /></div>
                     </div>
                   </a>
                 ))}
               </div>
-              {signals.length === 0 && !loading && <div className="text-center py-16 text-gray-500">No signals</div>}
             </div>
           )}
-          <div className="mt-6 bg-white/5 border border-white/10 rounded-xl p-4">
-            <p className="text-sm text-gray-400">🧠 Smart Money Score based on buy/sell pressure, volume/liquidity ratio, price momentum, and liquidity health. Score 65+ = potential smart money interest.</p>
-          </div>
+          <p className="mt-4 text-xs text-gray-500 text-center">🧠 Score based on buy/sell pressure, volume/liquidity ratio, price momentum. 65+ = smart money interest.</p>
         </div>
       )}
 
       {/* ===== WHALE ACTIVITY ===== */}
-      {activeSection === 'whales' && (
+      {sec === 'whales' && (
         <div>
-          {loading && whaleTrades.length === 0 ? (
-            <div className="text-center py-20 text-gray-500">Scanning on-chain activity...</div>
-          ) : whaleTrades.length > 0 ? (
+          {loading && whales.length === 0 ? (
+            <div className="text-center py-20 text-gray-500">Scanning...</div>
+          ) : whales.length === 0 ? (
+            <div className="text-center py-20 text-gray-500">No whale activity</div>
+          ) : (
             <div className="bg-white/[0.03] border border-white/10 rounded-2xl overflow-hidden">
-              <div className="grid grid-cols-[1fr_120px_120px_100px] gap-2 px-4 py-3 border-b border-white/10 text-[11px] text-gray-500 font-medium uppercase tracking-wider">
-                <span>Token</span><span>From</span><span>To</span><span>Tx</span>
+              <div className="hidden md:grid md:grid-cols-[1fr_100px_100px_80px_100px_120px] gap-2 px-4 py-3 border-b border-white/10 text-[11px] text-gray-500 font-medium uppercase tracking-wider">
+                <span>Token</span><span>Volume 24h</span><span>Liquidity</span><span>24h</span><span>Sentiment</span><span>Buys/Sells</span>
               </div>
               <div className="divide-y divide-white/5">
-                {whaleTrades.map((trade, i) => (
-                  <div key={i} className="grid grid-cols-[1fr_120px_120px_100px] gap-2 px-4 py-3 hover:bg-white/[0.03] transition items-center">
-                    <div>
-                      <span className="font-medium text-sm">{trade.tokenSymbol}</span>
-                      <p className="text-[11px] text-gray-500">Block #{trade.blockNumber}</p>
+                {whales.map((w, i) => (
+                  <a key={i} href={`/token/${w.tokenAddress}`}
+                    className="grid grid-cols-[1fr_100px_100px_80px_100px] md:grid-cols-[1fr_100px_100px_80px_100px_120px] gap-2 px-4 py-3 hover:bg-white/[0.03] transition items-center group">
+                    <div><span className="font-medium text-sm group-hover:text-purple-400">{w.tokenSymbol}</span><p className="text-[11px] text-gray-500 truncate">{w.tokenName}</p></div>
+                    <span className="text-sm font-bold">{fmt(w.volume24h)}</span>
+                    <span className="text-sm">{fmt(w.liquidity)}</span>
+                    <Chg v={w.priceChange24h} />
+                    <span className={`px-2 py-0.5 rounded text-[10px] border ${w.sentimentType === 'bullish' ? 'bg-green-500/10 text-green-400 border-green-500/20' : w.sentimentType === 'bearish' ? 'bg-red-500/10 text-red-400 border-red-500/20' : 'bg-gray-500/10 text-gray-400 border-gray-500/20'}`}>{w.sentiment}</span>
+                    <div className="hidden md:flex items-center gap-2">
+                      <span className="text-green-400 text-xs">{w.buys24h}B</span>
+                      <span className="text-gray-600">/</span>
+                      <span className="text-red-400 text-xs">{w.sells24h}S</span>
+                      <Bar pct={w.buyPressure} />
                     </div>
-                    <a href={`/wallet/${trade.from}`} className="text-xs font-mono text-gray-400 hover:text-purple-400 transition">
-                      {trade.from}
-                    </a>
-                    <a href={`/wallet/${trade.to}`} className="text-xs font-mono text-gray-400 hover:text-purple-400 transition">
-                      {trade.to}
-                    </a>
-                    <a href={trade.explorerUrl} target="_blank" rel="noopener noreferrer"
-                      className="text-xs text-purple-400 hover:text-purple-300 transition">
-                      View ↗
-                    </a>
-                  </div>
+                  </a>
                 ))}
               </div>
             </div>
-          ) : (
-            <div className="text-center py-20 text-gray-500">
-              <p className="text-lg mb-2">No recent whale activity detected</p>
-              <p className="text-sm">Monitoring on-chain transfers on recent Clanker tokens</p>
-            </div>
           )}
-          <div className="mt-6 bg-white/5 border border-white/10 rounded-xl p-4">
-            <p className="text-sm text-gray-400">🐋 Whale Activity tracks recent on-chain transfers on Clanker tokens via Base RPC. Click wallet addresses to view their full profile.</p>
-          </div>
+          <p className="mt-4 text-xs text-gray-500 text-center">🐋 Tokens with highest 24h trading volume. Heavy volume + high buy pressure = potential whale accumulation.</p>
         </div>
       )}
 
-      <p className="text-center text-[11px] text-gray-600 mt-6">
-        Auto-refreshes every 30s • Data from Clanker + DexScreener + Base RPC • Built by Ragna
-      </p>
+      <p className="text-center text-[11px] text-gray-600 mt-6">Auto-refreshes 30s • Clanker + DexScreener + Base RPC • Built by Ragna</p>
     </div>
   );
 }

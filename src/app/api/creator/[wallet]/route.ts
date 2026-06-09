@@ -19,7 +19,7 @@ export async function GET(
     }
 
     // Fetch all tokens by this creator
-    const searchResult = await getTokensByCreator(wallet, 50, 0);
+    const searchResult = await getTokensByCreator(wallet, 50);
     const tokens = searchResult.tokens || [];
     
     // Run analysis

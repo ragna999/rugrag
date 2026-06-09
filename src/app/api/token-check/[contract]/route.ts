@@ -43,7 +43,7 @@ export async function GET(
     }
 
     // Analyze the creator
-    const searchResult = await getTokensByCreator(deployer, 50, 0);
+    const searchResult = await getTokensByCreator(deployer, 50);
     const analysis = await analyzeCreator(
       searchResult.tokens || [],
       deployer,

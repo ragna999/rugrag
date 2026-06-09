@@ -1,19 +1,16 @@
 import { NextResponse } from 'next/server';
-import { getRecentTokens } from '@/lib/clanker';
+import { getTrendingTokens } from '@/lib/clanker';
 import { getTokenPairs, analyzeTradeSentiment, calculateTokenScore, SMART_MONEY_WALLETS } from '@/lib/smartmoney';
 
-// GET /api/smart-money
-// Returns smart money signals based on recent token activity
 export async function GET() {
   try {
-    // Get recent Clanker tokens
-    const recentTokens = await getRecentTokens(20);
-    const tokenAddresses = recentTokens.map(t => t.contract_address).filter(Boolean);
+    // Get tokens that ACTUALLY have volume
+    const trendingTokens = await getTrendingTokens(20);
+    const tokenAddresses = trendingTokens.map(t => t.contract_address).filter(Boolean);
 
-    // Fetch DexScreener data for these tokens
+    // Fetch DexScreener data for real trading data
     const pairs = await getTokenPairs(tokenAddresses);
 
-    // Analyze each pair for smart money signals
     const signals = pairs
       .map(pair => {
         const sentiment = analyzeTradeSentiment(pair);
@@ -40,18 +37,12 @@ export async function GET() {
           dexScreenerUrl: pair.url,
         };
       })
-      .filter(s => s.volume24h > 0)
+      .filter(s => s.volume24h > 100) // Only show tokens with real volume
       .sort((a, b) => b.smartMoneyScore - a.smartMoneyScore);
 
     return NextResponse.json({
       signals,
       trackedWallets: SMART_MONEY_WALLETS.length,
-      walletList: SMART_MONEY_WALLETS.map(w => ({
-        address: `${w.address.slice(0, 6)}...${w.address.slice(-4)}`,
-        label: w.label,
-        source: w.source,
-        tags: w.tags,
-      })),
       generatedAt: new Date().toISOString(),
     }, {
       headers: {
@@ -60,10 +51,7 @@ export async function GET() {
       },
     });
   } catch (error) {
-    console.error('Smart money API error:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch smart money data' },
-      { status: 500 }
-    );
+    console.error('Smart money error:', error);
+    return NextResponse.json({ error: 'Failed' }, { status: 500 });
   }
 }

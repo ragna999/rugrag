@@ -1,65 +1,65 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { getRecentTokens } from '@/lib/clanker';
-import { getTokenTransfers, getLatestBlock } from '@/lib/onchain';
+import { NextResponse } from 'next/server';
+import { getTrendingTokens } from '@/lib/clanker';
+import { getTokenPairs, analyzeTradeSentiment } from '@/lib/smartmoney';
 
-interface WhaleTrade {
-  txHash: string;
-  tokenAddress: string;
+interface WhaleActivity {
   tokenSymbol: string;
-  from: string;
-  to: string;
-  action: 'buy' | 'sell';
-  blockNumber: number;
-  explorerUrl: string;
+  tokenName: string;
+  tokenAddress: string;
+  volume24h: number;
+  buys24h: number;
+  sells24h: number;
+  buyPressure: number;
+  sentiment: string;
+  sentimentType: string;
+  liquidity: number;
+  priceChange24h: number;
+  price: string;
+  dexScreenerUrl: string;
 }
 
 // GET /api/whale-tracker
-export async function GET(request: NextRequest) {
+// Shows tokens with heavy trading activity (whale-level volume)
+export async function GET() {
   try {
-    const { searchParams } = new URL(request.url);
-    const limit = Math.min(Number(searchParams.get('limit')) || 10, 20);
+    const tokens = await getTrendingTokens(20);
+    const addresses = tokens.map(t => t.contract_address).filter(Boolean);
+    const pairs = await getTokenPairs(addresses);
 
-    const tokens = await getRecentTokens(10);
-    const latestBlock = await getLatestBlock();
-    const fromBlock = latestBlock - 5000;
+    const activity: WhaleActivity[] = pairs
+      .map(pair => {
+        const sentiment = analyzeTradeSentiment(pair);
+        const txns = pair.txns?.h24;
+        const vol = pair.volume?.h24 || 0;
+        const liq = pair.liquidity?.usd || 0;
 
-    const whaleTrades: WhaleTrade[] = [];
-
-    const promises = tokens.slice(0, 5).map(async (token) => {
-      try {
-        const transfers = await getTokenTransfers(
-          token.contract_address,
-          fromBlock,
-          latestBlock
-        );
-
-        for (const t of transfers.slice(0, 5)) {
-          const value = parseInt(t.value, 16);
-          if (value > 0) {
-            whaleTrades.push({
-              txHash: t.txHash,
-              tokenAddress: token.contract_address,
-              tokenSymbol: token.symbol,
-              from: `${t.from.slice(0, 6)}...${t.from.slice(-4)}`,
-              to: `${t.to.slice(0, 6)}...${t.to.slice(-4)}`,
-              action: 'buy',
-              blockNumber: t.blockNumber,
-              explorerUrl: `https://basescan.org/tx/${t.txHash}`,
-            });
-          }
-        }
-      } catch {
-        // skip
-      }
-    });
-
-    await Promise.allSettled(promises);
-    whaleTrades.sort((a, b) => b.blockNumber - a.blockNumber);
+        return {
+          tokenSymbol: pair.baseToken?.symbol || '?',
+          tokenName: pair.baseToken?.name || 'Unknown',
+          tokenAddress: pair.baseToken?.address || '',
+          volume24h: vol,
+          buys24h: txns?.buys || 0,
+          sells24h: txns?.sells || 0,
+          buyPressure: sentiment.buyPressure,
+          sentiment: sentiment.signal,
+          sentimentType: sentiment.sentiment,
+          liquidity: liq,
+          priceChange24h: pair.priceChange?.h24 || 0,
+          price: pair.priceUsd || '0',
+          dexScreenerUrl: pair.url || '',
+        };
+      })
+      .filter(a => a.volume24h > 500) // Only tokens with meaningful volume
+      .sort((a, b) => b.volume24h - a.volume24h);
 
     return NextResponse.json({
-      trades: whaleTrades.slice(0, limit),
-      tokensMonitored: Math.min(tokens.length, 5),
-      blockRange: `${fromBlock} - ${latestBlock}`,
+      activity,
+      summary: {
+        totalVolume: activity.reduce((s, a) => s + a.volume24h, 0),
+        totalBuys: activity.reduce((s, a) => s + a.buys24h, 0),
+        totalSells: activity.reduce((s, a) => s + a.sells24h, 0),
+        bullishTokens: activity.filter(a => a.sentimentType === 'bullish').length,
+      },
       generatedAt: new Date().toISOString(),
     }, {
       headers: {
