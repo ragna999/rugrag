@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getTopTokens, getTokensByCreator } from '@/lib/clanker';
+import { getTrendingTokens, getTokensByCreator } from '@/lib/clanker';
 import { analyzeCreator, CreatorAnalysis } from '@/lib/scorer';
 
 // GET /api/leaderboard
@@ -7,7 +7,7 @@ import { analyzeCreator, CreatorAnalysis } from '@/lib/scorer';
 export async function GET() {
   try {
     // Get top tokens by volume to find active creators
-    const topTokens = await getTopTokens('market-cap', 50);
+    const topTokens = await getTrendingTokens(50);
     
     // Collect unique deployer addresses
     const deployerMap = new Map<string, typeof topTokens>();
