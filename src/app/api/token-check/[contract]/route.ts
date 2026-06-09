@@ -16,15 +16,13 @@ export async function GET(
 
     const addrLower = contract.toLowerCase();
 
-    // Fetch all data in parallel
     const [trending, newPools, wakeResult, searchResults] = await Promise.all([
       getBaseTrendingPools(1),
       getBaseNewPools(1),
       getWakeAnalysis(contract),
-      searchPools(contract), // search by address
+      searchPools(contract),
     ]);
 
-    // Find token in trending, new, or search results
     const allPools = [...trending, ...newPools, ...searchResults];
     const pool = allPools.find(p => {
       const tokenId = p.relationships?.base_token?.data?.id || '';
@@ -32,11 +30,10 @@ export async function GET(
       return tokenAddr === addrLower || p.attributes?.address?.toLowerCase() === addrLower;
     });
 
-    let token;
+    let token = null;
     if (pool) {
       token = normalizePool(pool);
     } else {
-      // Fallback: Clanker API
       try {
         const clankerToken = await getTokenByAddress(contract);
         if (clankerToken) {
@@ -73,7 +70,7 @@ export async function GET(
       return NextResponse.json({ error: 'Token not found' }, { status: 404 });
     }
 
-    // Creator info from Clanker
+    // Creator info
     let creator = null;
     try {
       const clankerToken = await getTokenByAddress(contract);
@@ -91,19 +88,28 @@ export async function GET(
       }
     } catch { /* ignore */ }
 
-    // WAKE data
-    const wake = wakeResult ? {
-      score: wakeResult.score,
-      tier: wakeResult.tier,
-      tags: wakeResult.tags,
-      security: {
-        level: wakeResult.security_advisory?.level || 'unknown',
-        reasons: wakeResult.security_advisory?.reasons || [],
-      },
-      breakdown: wakeResult.breakdown,
-      narrative: wakeResult.narrative,
-      launchProtocol: wakeResult.launch_protocol,
-    } : null;
+    // WAKE — only return if we have valid data with score
+    let wake = null;
+    if (wakeResult && typeof wakeResult.score === 'number') {
+      wake = {
+        score: wakeResult.score,
+        tier: wakeResult.tier || 'unknown',
+        tags: wakeResult.tags || [],
+        security: {
+          level: wakeResult.security_advisory?.level || 'unknown',
+          reasons: wakeResult.security_advisory?.reasons || [],
+        },
+        breakdown: wakeResult.breakdown || {
+          market_signals: 0,
+          social_signals: 0,
+          contract_safety: 0,
+          deployer_quality: 0,
+          liquidity_health: 0,
+        },
+        narrative: wakeResult.narrative,
+        launchProtocol: wakeResult.launch_protocol,
+      };
+    }
 
     return NextResponse.json({
       token: {
