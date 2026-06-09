@@ -9,10 +9,11 @@ interface TokenInfo {
   contractAddress: string;
   deployedAt?: string;
   market?: {
-    marketCap?: number;
+    mcap?: number;
     price?: number;
     volume24h?: number;
     liquidityUsd?: number;
+    priceChange24h?: number;
   };
   pair?: string;
 }
@@ -34,31 +35,33 @@ interface CheckResult {
   creator: CreatorInfo | null;
 }
 
-function formatUsd(n?: number): string {
+function fmt(n?: number): string {
   if (!n) return '-';
   if (n >= 1000000) return `$${(n / 1000000).toFixed(2)}M`;
   if (n >= 1000) return `$${(n / 1000).toFixed(1)}K`;
-  return `$${n.toFixed(2)}`;
+  if (n >= 1) return `$${n.toFixed(2)}`;
+  return `$${n.toFixed(6)}`;
+}
+
+function fmtHours(h: number): string {
+  if (h < 1) return `${(h * 60).toFixed(0)}m`;
+  if (h < 24) return `${h.toFixed(1)}h`;
+  if (h < 720) return `${(h / 24).toFixed(1)}d`;
+  return `${(h / 720).toFixed(1)}mo`;
 }
 
 function VerdictBadge({ verdict }: { verdict: string }) {
-  const colors: Record<string, string> = {
+  const c: Record<string, string> = {
     LEGIT: 'bg-green-500/20 text-green-400 border-green-500/30',
     SUSPICIOUS: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
     RUGGER: 'bg-red-500/20 text-red-400 border-red-500/30',
   };
-  return (
-    <span className={`px-3 py-1 rounded-full text-sm font-bold border ${colors[verdict] || ''}`}>
-      {verdict}
-    </span>
-  );
+  return <span className={`px-3 py-1 rounded-full text-sm font-bold border ${c[verdict] || ''}`}>{verdict}</span>;
 }
 
 function ScoreCircle({ score }: { score: number }) {
   const color = score >= 65 ? '#22c55e' : score >= 35 ? '#eab308' : '#ef4444';
-  const r = 36;
-  const c = 2 * Math.PI * r;
-  const offset = c - (score / 100) * c;
+  const r = 36, c = 2 * Math.PI * r, offset = c - (score / 100) * c;
   return (
     <div className="relative w-24 h-24">
       <svg className="w-24 h-24 -rotate-90" viewBox="0 0 80 80">
@@ -73,13 +76,6 @@ function ScoreCircle({ score }: { score: number }) {
   );
 }
 
-function formatHours(h: number): string {
-  if (h < 1) return `${(h * 60).toFixed(0)}m`;
-  if (h < 24) return `${h.toFixed(1)}h`;
-  if (h < 720) return `${(h / 24).toFixed(1)}d`;
-  return `${(h / 720).toFixed(1)}mo`;
-}
-
 export default function TokenPage() {
   const params = useParams();
   const address = params?.address as string;
@@ -91,15 +87,12 @@ export default function TokenPage() {
     if (!address) return;
     setLoading(true);
     fetch(`/api/token-check/${address}`)
-      .then(r => {
-        if (!r.ok) throw new Error('Token not found');
-        return r.json();
-      })
+      .then(r => { if (!r.ok) throw new Error('Not found'); return r.json(); })
       .then(d => { setData(d); setLoading(false); })
       .catch(e => { setError(e.message); setLoading(false); });
   }, [address]);
 
-  if (loading) return <div className="text-center py-20 text-gray-500">Loading token...</div>;
+  if (loading) return <div className="text-center py-20 text-gray-500">Loading...</div>;
   if (error) return <div className="text-center py-20 text-red-400">{error}</div>;
   if (!data) return null;
 
@@ -113,28 +106,24 @@ export default function TokenPage() {
             <p className="text-gray-400 text-lg">{data.token.symbol}</p>
             <p className="text-xs text-gray-600 font-mono mt-2">{data.token.contractAddress}</p>
           </div>
-          <a
-            href={`https://www.clanker.world/clanker/${data.token.contractAddress}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg text-sm transition"
-          >
+          <a href={`https://www.clanker.world/clanker/${data.token.contractAddress}`}
+            target="_blank" rel="noopener noreferrer"
+            className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg text-sm transition">
             View on Clanker ↗
           </a>
         </div>
-
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div className="bg-white/5 rounded-xl p-4">
-            <p className="text-xl font-bold">{formatUsd(data.token.market?.marketCap)}</p>
+            <p className="text-xl font-bold">{fmt(data.token.market?.mcap)}</p>
             <p className="text-xs text-gray-500">Market Cap</p>
           </div>
           <div className="bg-white/5 rounded-xl p-4">
-            <p className="text-xl font-bold">{formatUsd(data.token.market?.volume24h)}</p>
+            <p className="text-xl font-bold">{fmt(data.token.market?.volume24h)}</p>
             <p className="text-xs text-gray-500">Volume 24h</p>
           </div>
           <div className="bg-white/5 rounded-xl p-4">
-            <p className="text-xl font-bold">{formatUsd(data.token.market?.liquidityUsd)}</p>
-            <p className="text-xs text-gray-500">Liquidity</p>
+            <p className="text-xl font-bold">{data.token.market?.price ? `$${data.token.market.price.toFixed(8)}` : '-'}</p>
+            <p className="text-xs text-gray-500">Price</p>
           </div>
           <div className="bg-white/5 rounded-xl p-4">
             <p className="text-xl font-bold">{data.token.pair || 'WETH'}</p>
@@ -153,22 +142,13 @@ export default function TokenPage() {
               <div className="flex items-center gap-3 mb-2">
                 <VerdictBadge verdict={data.creator.verdict} />
               </div>
-              <a href={`/creator/${data.creator.wallet}`} className="text-sm text-gray-400 font-mono hover:text-purple-400 transition">
+              <a href={`/creator/${data.creator.wallet}`} className="text-sm text-gray-400 font-mono hover:text-purple-400">
                 {data.creator.wallet}
               </a>
               <div className="grid grid-cols-3 gap-4 mt-4 mb-4">
-                <div>
-                  <p className="text-lg font-bold">{data.creator.totalTokensDeployed}</p>
-                  <p className="text-xs text-gray-500">Total Tokens</p>
-                </div>
-                <div>
-                  <p className="text-lg font-bold text-green-400">{data.creator.aliveTokens}</p>
-                  <p className="text-xs text-gray-500">Alive</p>
-                </div>
-                <div>
-                  <p className="text-lg font-bold text-red-400">{data.creator.deadTokens}</p>
-                  <p className="text-xs text-gray-500">Dead</p>
-                </div>
+                <div><p className="text-lg font-bold">{data.creator.totalTokensDeployed}</p><p className="text-xs text-gray-500">Total</p></div>
+                <div><p className="text-lg font-bold text-green-400">{data.creator.aliveTokens}</p><p className="text-xs text-gray-500">Alive</p></div>
+                <div><p className="text-lg font-bold text-red-400">{data.creator.deadTokens}</p><p className="text-xs text-gray-500">Dead</p></div>
               </div>
               {data.creator.flags.length > 0 && (
                 <div className="flex flex-wrap gap-2">
@@ -185,29 +165,18 @@ export default function TokenPage() {
       {/* Creator's Other Tokens */}
       {data.creator && data.creator.tokens.length > 1 && (
         <div className="bg-white/5 border border-white/10 rounded-2xl overflow-hidden">
-          <div className="px-6 py-4 border-b border-white/10">
-            <h3 className="font-medium">Creator&apos;s Other Tokens</h3>
-          </div>
+          <div className="px-6 py-4 border-b border-white/10"><h3 className="font-medium">Creator&apos;s Other Tokens</h3></div>
           <div className="divide-y divide-white/5">
-            {data.creator.tokens
-              .filter(t => t.contractAddress.toLowerCase() !== address.toLowerCase())
-              .slice(0, 10)
-              .map((t, i) => (
-              <a
-                key={i}
-                href={`/token/${t.contractAddress}`}
-                className="flex items-center justify-between px-6 py-3 hover:bg-white/5 transition"
-              >
+            {data.creator.tokens.filter(t => t.contractAddress.toLowerCase() !== address.toLowerCase()).slice(0, 10).map((t, i) => (
+              <a key={i} href={`/token/${t.contractAddress}`}
+                className="flex items-center justify-between px-6 py-3 hover:bg-white/5 transition">
                 <div className="flex items-center gap-3">
                   <span className={`w-2 h-2 rounded-full ${t.status === 'alive' ? 'bg-green-400' : t.status === 'low-volume' ? 'bg-yellow-400' : 'bg-red-400'}`} />
-                  <div>
-                    <p className="font-medium text-sm">{t.symbol}</p>
-                    <p className="text-xs text-gray-500">{t.name}</p>
-                  </div>
+                  <div><p className="font-medium text-sm">{t.symbol}</p><p className="text-xs text-gray-500">{t.name}</p></div>
                 </div>
                 <div className="flex items-center gap-6 text-sm">
-                  <span>{formatUsd(t.mcapNow)}</span>
-                  <span className="text-gray-500">{formatHours(t.ageHours)}</span>
+                  <span>{fmt(t.mcapNow)}</span>
+                  <span className="text-gray-500">{fmtHours(t.ageHours)}</span>
                 </div>
               </a>
             ))}
