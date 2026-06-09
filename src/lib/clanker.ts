@@ -50,19 +50,20 @@ export function normalizeMarket(token: ClankerToken) {
 
 async function fetchClanker(path: string, params: Record<string, string> = {}) {
   const qs = new URLSearchParams(params);
-  const res = await fetch(`${CLANKER_API}${path}?${qs}`, {
-    headers: { Accept: 'application/json', 'User-Agent': 'RUGRAG/1.0' },
+  const url = `${CLANKER_API}${path}?${qs}`;
+  const res = await fetch(url, {
+    headers: { Accept: 'application/json' },
   });
   if (!res.ok) throw new Error(`Clanker API: ${res.status}`);
   return res.json();
 }
 
-// Get ALL tokens (no chainId filter — Clanker API returns fewer results with it)
+// Get tokens (max limit = 20 per Clanker API!)
 export async function getAllTokens(limit = 20): Promise<ClankerToken[]> {
   const data = await fetchClanker('/tokens', {
     sortBy: 'market-cap',
     sort: 'desc',
-    limit: String(limit),
+    limit: String(Math.min(limit, 20)), // API max is 20
     includeMarket: 'true',
   });
   return data?.data || [];
@@ -70,7 +71,7 @@ export async function getAllTokens(limit = 20): Promise<ClankerToken[]> {
 
 // Get tokens with volume > 0
 export async function getActiveTokens(limit = 20): Promise<ClankerToken[]> {
-  const all = await getAllTokens(50);
+  const all = await getAllTokens(20);
   return all
     .filter((t: ClankerToken) => (t.related?.market?.volume24h || 0) > 0)
     .slice(0, limit);
@@ -78,7 +79,7 @@ export async function getActiveTokens(limit = 20): Promise<ClankerToken[]> {
 
 // Get trending (sorted by volume)
 export async function getTrendingTokens(limit = 20): Promise<ClankerToken[]> {
-  const all = await getAllTokens(50);
+  const all = await getAllTokens(20);
   return all
     .filter((t: ClankerToken) => (t.related?.market?.volume24h || 0) > 0)
     .sort((a: ClankerToken, b: ClankerToken) =>
@@ -89,7 +90,7 @@ export async function getTrendingTokens(limit = 20): Promise<ClankerToken[]> {
 
 // Get recent active tokens
 export async function getRecentActiveTokens(limit = 20): Promise<ClankerToken[]> {
-  const active = await getActiveTokens(50);
+  const active = await getActiveTokens(20);
   return active
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
     .slice(0, limit);
