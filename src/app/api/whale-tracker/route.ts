@@ -1,32 +1,25 @@
 import { NextResponse } from 'next/server';
-import { getDexTrending, analyzeSentiment } from '@/lib/smartmoney';
+import { getTrendingTokens } from '@/lib/geckoterminal';
 
 export async function GET() {
   try {
-    const pairs = await getDexTrending();
+    const tokens = await getTrendingTokens();
 
-    const activity = pairs.map(pair => {
-      const sentiment = analyzeSentiment(pair);
-      const txns = pair.txns?.h24;
-
-      return {
-        tokenSymbol: pair.baseToken?.symbol || '?',
-        tokenName: pair.baseToken?.name || 'Unknown',
-        tokenAddress: pair.baseToken?.address || '',
-        volume24h: pair.volume?.h24 || 0,
-        buys24h: txns?.buys || 0,
-        sells24h: txns?.sells || 0,
-        buyPressure: sentiment.pressure,
-        sentiment: sentiment.label,
-        sentimentType: sentiment.type,
-        liquidity: pair.liquidity?.usd || 0,
-        priceChange24h: pair.priceChange?.h24 || 0,
-        price: pair.priceUsd || '0',
-        dexScreenerUrl: pair.url || '',
-      };
-    })
-    .filter(a => a.volume24h > 0)
-    .sort((a, b) => b.volume24h - a.volume24h);
+    const activity = tokens.map(t => ({
+      tokenSymbol: t.symbol,
+      tokenName: t.name,
+      tokenAddress: t.contractAddress,
+      volume24h: t.market.volume24h,
+      buys24h: t.txns.buys24h,
+      sells24h: t.txns.sells24h,
+      buyPressure: t.buyPressure,
+      sentiment: t.sentiment,
+      sentimentType: t.sentimentType,
+      liquidity: t.market.liquidityUsd,
+      priceChange24h: t.market.priceChange24h,
+      price: t.market.price > 0 ? `$${t.market.price}` : '-',
+      dexScreenerUrl: t.gtUrl,
+    }));
 
     return NextResponse.json({
       activity,

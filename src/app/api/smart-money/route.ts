@@ -1,37 +1,25 @@
 import { NextResponse } from 'next/server';
-import { getDexTrending, analyzeSentiment, calcScore } from '@/lib/smartmoney';
+import { getTrendingTokens } from '@/lib/geckoterminal';
 
 export async function GET() {
   try {
-    const pairs = await getDexTrending();
+    const tokens = await getTrendingTokens();
 
-    const signals = pairs.map(pair => {
-      const sentiment = analyzeSentiment(pair);
-      const score = calcScore(pair);
-      const txns = pair.txns?.h24;
-
-      return {
-        token: {
-          name: pair.baseToken?.name || 'Unknown',
-          symbol: pair.baseToken?.symbol || '?',
-          address: pair.baseToken?.address || '',
-        },
-        price: pair.priceUsd,
-        priceChange24h: pair.priceChange?.h24 || 0,
-        volume24h: pair.volume?.h24 || 0,
-        liquidity: pair.liquidity?.usd || 0,
-        marketCap: pair.marketCap || pair.fdv || 0,
-        buys24h: txns?.buys || 0,
-        sells24h: txns?.sells || 0,
-        sentiment: sentiment.label,
-        sentimentType: sentiment.type,
-        buyPressure: sentiment.pressure,
-        smartMoneyScore: score,
-        dexScreenerUrl: pair.url,
-      };
-    })
-    .filter(s => s.volume24h > 0)
-    .sort((a, b) => b.smartMoneyScore - a.smartMoneyScore);
+    const signals = tokens.map(t => ({
+      token: { name: t.name, symbol: t.symbol, address: t.contractAddress },
+      price: t.market.price > 0 ? `$${t.market.price}` : '-',
+      priceChange24h: t.market.priceChange24h,
+      volume24h: t.market.volume24h,
+      liquidity: t.market.liquidityUsd,
+      marketCap: t.market.mcap,
+      buys24h: t.txns.buys24h,
+      sells24h: t.txns.sells24h,
+      sentiment: t.sentiment,
+      sentimentType: t.sentimentType,
+      buyPressure: t.buyPressure,
+      smartMoneyScore: t.score,
+      dexScreenerUrl: t.gtUrl,
+    }));
 
     return NextResponse.json({
       signals,
