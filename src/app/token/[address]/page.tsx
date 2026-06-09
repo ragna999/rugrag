@@ -56,18 +56,21 @@ function fmtHours(h: number): string {
   return `${(h / 720).toFixed(1)}mo`;
 }
 
-function ScoreCircle({ score }: { score: number }) {
-  const color = score >= 65 ? '#22c55e' : score >= 35 ? '#eab308' : '#ef4444';
-  const r = 36, c = 2 * Math.PI * r, offset = c - (score / 100) * c;
+function Ring({ score, label, color, sub }: { score: number; label: string; color: string; sub?: string }) {
+  const r = 32, c = 2 * Math.PI * r, offset = c - (score / 100) * c;
   return (
-    <div className="relative w-24 h-24">
-      <svg className="w-24 h-24 -rotate-90" viewBox="0 0 80 80">
-        <circle cx="40" cy="40" r={r} fill="none" stroke="#1a1a2e" strokeWidth="6" />
-        <circle cx="40" cy="40" r={r} fill="none" stroke={color} strokeWidth="6" strokeDasharray={c} strokeDashoffset={offset} strokeLinecap="round" />
-      </svg>
-      <div className="absolute inset-0 flex items-center justify-center">
-        <span className="text-2xl font-bold" style={{ color }}>{score}</span>
+    <div className="flex flex-col items-center">
+      <div className="relative w-20 h-20">
+        <svg className="w-20 h-20 -rotate-90" viewBox="0 0 72 72">
+          <circle cx="36" cy="36" r={r} fill="none" stroke="#1a1a2e" strokeWidth="5" />
+          <circle cx="36" cy="36" r={r} fill="none" stroke={color} strokeWidth="5" strokeDasharray={c} strokeDashoffset={offset} strokeLinecap="round" />
+        </svg>
+        <div className="absolute inset-0 flex items-center justify-center">
+          <span className="text-xl font-bold" style={{ color }}>{score}</span>
+        </div>
       </div>
+      <p className="text-xs font-medium mt-1 text-center">{label}</p>
+      {sub && <p className="text-[10px] text-gray-500 text-center">{sub}</p>}
     </div>
   );
 }
@@ -100,6 +103,18 @@ export default function TokenPage() {
   const t = data.token;
   const m = t.market || {};
 
+  // Calculate token trading score (same as index)
+  let tradingScore = 50;
+  const vol = m.volume24h || 0;
+  const liq = m.liquidityUsd || 0;
+  if (liq > 50000) tradingScore += 10;
+  if (liq > 200000) tradingScore += 5;
+  if (liq < 5000) tradingScore -= 20;
+  if (vol > 1000) tradingScore += 5;
+  if (vol > 10000) tradingScore += 5;
+  if (liq > 0) { const r = vol / liq; if (r > 0.1 && r < 2) tradingScore += 5; if (r > 3) tradingScore -= 10; }
+  tradingScore = Math.max(0, Math.min(100, tradingScore));
+
   return (
     <div className="max-w-4xl mx-auto">
       {/* Token Header */}
@@ -124,111 +139,121 @@ export default function TokenPage() {
         </div>
       </div>
 
-      {/* WAKE Analysis */}
+      {/* Score Comparison */}
+      <div className="bg-white/5 border border-white/10 rounded-2xl p-8 mb-6">
+        <h2 className="text-xl font-bold mb-6">Scores</h2>
+        <div className="flex items-start justify-center gap-8 flex-wrap">
+          <Ring
+            score={tradingScore}
+            label="Trading"
+            color={tradingScore >= 65 ? '#22c55e' : tradingScore >= 35 ? '#eab308' : '#ef4444'}
+            sub="Volume & liquidity"
+          />
+          {data.wake && typeof data.wake.score === 'number' && (
+            <Ring
+              score={data.wake.score}
+              label="WAKE"
+              color={data.wake.score >= 65 ? '#22c55e' : data.wake.score >= 35 ? '#eab308' : '#ef4444'}
+              sub={`Token quality (${data.wake.tier})`}
+            />
+          )}
+          {data.creator && (
+            <Ring
+              score={data.creator.rugScore}
+              label="Creator"
+              color={data.creator.rugScore >= 65 ? '#22c55e' : data.creator.rugScore >= 35 ? '#eab308' : '#ef4444'}
+              sub={`${data.creator.verdict} deployer`}
+            />
+          )}
+        </div>
+        <p className="text-xs text-gray-500 text-center mt-4">
+          Trading = market activity • WAKE = token security & quality • Creator = deployer reputation
+        </p>
+      </div>
+
+      {/* WAKE Detail */}
       {data.wake && typeof data.wake.score === 'number' && (
         <div className="bg-white/5 border border-white/10 rounded-2xl p-8 mb-6">
-          <h2 className="text-xl font-bold mb-4">🦉 WAKE Analysis</h2>
-          <div className="flex items-start gap-6 mb-6">
-            <ScoreCircle score={data.wake.score} />
-            <div className="flex-1">
-              <div className="flex items-center gap-3 mb-2">
-                <span className={`px-3 py-1 rounded-full text-sm font-bold border ${
-                  data.wake.tier === 'solid' ? 'bg-green-500/20 text-green-400 border-green-500/30' :
-                  data.wake.tier === 'mixed' ? 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30' :
-                  data.wake.tier === 'risky' ? 'bg-orange-500/20 text-orange-400 border-orange-500/30' :
-                  data.wake.tier === 'avoid' ? 'bg-red-500/20 text-red-400 border-red-500/30' :
-                  'bg-gray-500/20 text-gray-400 border-gray-500/30'
-                }`}>{(data.wake.tier || 'unknown').toUpperCase()}</span>
-                <span className={`text-sm ${data.wake.security?.level === 'clear' ? 'text-green-400' : 'text-gray-400'}`}>
-                  Security: {data.wake.security?.level || 'unknown'}
-                </span>
-              </div>
-              {data.wake.tags?.length > 0 && (
-                <div className="flex flex-wrap gap-2 mb-3">
-                  {data.wake.tags.map((tag, i) => (
-                    <span key={i} className="text-[11px] bg-white/5 border border-white/10 rounded px-2 py-0.5">{tag}</span>
-                  ))}
-                </div>
-              )}
-              {data.wake.narrative && <p className="text-sm text-gray-300">{data.wake.narrative}</p>}
+          <h2 className="text-lg font-bold mb-4">🦉 WAKE Breakdown</h2>
+          {data.wake.tags?.length > 0 && (
+            <div className="flex flex-wrap gap-2 mb-4">
+              {data.wake.tags.map((tag, i) => (
+                <span key={i} className="text-[11px] bg-white/5 border border-white/10 rounded px-2 py-0.5">{tag}</span>
+              ))}
             </div>
-          </div>
+          )}
           {data.wake.breakdown && (
-            <div className="grid grid-cols-5 gap-2">
+            <div className="grid grid-cols-5 gap-2 mb-4">
               {[
-                { label: 'Market', value: data.wake.breakdown.market_signals },
-                { label: 'Social', value: data.wake.breakdown.social_signals },
-                { label: 'Contract', value: data.wake.breakdown.contract_safety },
-                { label: 'Deployer', value: data.wake.breakdown.deployer_quality },
-                { label: 'Liquidity', value: data.wake.breakdown.liquidity_health },
+                { label: 'Market', v: data.wake.breakdown.market_signals },
+                { label: 'Social', v: data.wake.breakdown.social_signals },
+                { label: 'Contract', v: data.wake.breakdown.contract_safety },
+                { label: 'Deployer', v: data.wake.breakdown.deployer_quality },
+                { label: 'Liquidity', v: data.wake.breakdown.liquidity_health },
               ].map((b, i) => (
                 <div key={i} className="text-center">
                   <div className="h-2 bg-white/10 rounded-full overflow-hidden mb-1">
-                    <div className="h-full bg-purple-500 rounded-full" style={{ width: `${((b.value || 0) / 20) * 100}%` }} />
+                    <div className="h-full bg-purple-500 rounded-full" style={{ width: `${((b.v || 0) / 20) * 100}%` }} />
                   </div>
                   <p className="text-xs text-gray-500">{b.label}</p>
-                  <p className="text-sm font-bold">{b.value || 0}/20</p>
+                  <p className="text-sm font-bold">{b.v || 0}/20</p>
                 </div>
               ))}
+            </div>
+          )}
+          {data.wake.narrative && <p className="text-sm text-gray-300">{data.wake.narrative}</p>}
+        </div>
+      )}
+
+      {/* Creator Detail */}
+      {data.creator && (
+        <div className="bg-white/5 border border-white/10 rounded-2xl p-8 mb-6">
+          <h2 className="text-lg font-bold mb-4">Creator Analysis</h2>
+          <div className="flex items-start gap-4">
+            <span className={`px-3 py-1 rounded-full text-sm font-bold border ${
+              data.creator.verdict === 'LEGIT' ? 'bg-green-500/20 text-green-400 border-green-500/30' :
+              data.creator.verdict === 'RUGGER' ? 'bg-red-500/20 text-red-400 border-red-500/30' :
+              'bg-yellow-500/20 text-yellow-400 border-yellow-500/30'
+            }`}>{data.creator.verdict}</span>
+            <a href={`/creator/${data.creator.wallet}`} className="text-sm text-gray-400 font-mono hover:text-purple-400">{data.creator.wallet}</a>
+          </div>
+          <div className="grid grid-cols-3 gap-4 mt-4 mb-4">
+            <div><p className="text-lg font-bold">{data.creator.totalTokensDeployed}</p><p className="text-xs text-gray-500">Total Tokens</p></div>
+            <div><p className="text-lg font-bold text-green-400">{data.creator.aliveTokens}</p><p className="text-xs text-gray-500">Alive</p></div>
+            <div><p className="text-lg font-bold text-red-400">{data.creator.deadTokens}</p><p className="text-xs text-gray-500">Dead</p></div>
+          </div>
+          {data.creator.flags?.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {data.creator.flags.map((f, i) => (
+                <span key={i} className="text-xs bg-white/5 border border-white/10 rounded-lg px-3 py-1.5">{f}</span>
+              ))}
+            </div>
+          )}
+          {/* Creator's Other Tokens */}
+          {data.creator.tokens?.length > 1 && (
+            <div className="mt-6 pt-4 border-t border-white/10">
+              <p className="text-sm font-medium text-gray-400 mb-3">Other tokens by this creator</p>
+              <div className="space-y-2">
+                {data.creator.tokens.filter(tk => tk.contractAddress.toLowerCase() !== address.toLowerCase()).slice(0, 5).map((tk, i) => (
+                  <a key={i} href={`/token/${tk.contractAddress}`} className="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-white/5 transition">
+                    <div className="flex items-center gap-2">
+                      <span className={`w-2 h-2 rounded-full ${tk.status === 'alive' ? 'bg-green-400' : tk.status === 'low-volume' ? 'bg-yellow-400' : 'bg-red-400'}`} />
+                      <span className="text-sm">{tk.symbol}</span>
+                      <span className="text-xs text-gray-500">{tk.name}</span>
+                    </div>
+                    <div className="flex items-center gap-4 text-xs text-gray-400">
+                      <span>{fmt(tk.mcapNow)}</span>
+                      <span>{fmtHours(tk.ageHours)}</span>
+                    </div>
+                  </a>
+                ))}
+              </div>
             </div>
           )}
         </div>
       )}
 
-      {/* Creator Analysis */}
-      {data.creator && (
-        <div className="bg-white/5 border border-white/10 rounded-2xl p-8 mb-6">
-          <h2 className="text-xl font-bold mb-6">Creator Analysis</h2>
-          <div className="flex items-start gap-6">
-            <ScoreCircle score={data.creator.rugScore} />
-            <div className="flex-1">
-              <span className={`px-3 py-1 rounded-full text-sm font-bold border ${
-                data.creator.verdict === 'LEGIT' ? 'bg-green-500/20 text-green-400 border-green-500/30' :
-                data.creator.verdict === 'RUGGER' ? 'bg-red-500/20 text-red-400 border-red-500/30' :
-                'bg-yellow-500/20 text-yellow-400 border-yellow-500/30'
-              }`}>{data.creator.verdict}</span>
-              <a href={`/creator/${data.creator.wallet}`} className="block text-sm text-gray-400 font-mono hover:text-purple-400 mt-2">
-                {data.creator.wallet}
-              </a>
-              <div className="grid grid-cols-3 gap-4 mt-4 mb-4">
-                <div><p className="text-lg font-bold">{data.creator.totalTokensDeployed}</p><p className="text-xs text-gray-500">Total</p></div>
-                <div><p className="text-lg font-bold text-green-400">{data.creator.aliveTokens}</p><p className="text-xs text-gray-500">Alive</p></div>
-                <div><p className="text-lg font-bold text-red-400">{data.creator.deadTokens}</p><p className="text-xs text-gray-500">Dead</p></div>
-              </div>
-              {data.creator.flags?.length > 0 && (
-                <div className="flex flex-wrap gap-2">
-                  {data.creator.flags.map((f, i) => (
-                    <span key={i} className="text-xs bg-white/5 border border-white/10 rounded-lg px-3 py-1.5">{f}</span>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Creator's Other Tokens */}
-      {data.creator?.tokens && data.creator.tokens.length > 1 && (
-        <div className="bg-white/5 border border-white/10 rounded-2xl overflow-hidden">
-          <div className="px-6 py-4 border-b border-white/10"><h3 className="font-medium">Creator&apos;s Other Tokens</h3></div>
-          <div className="divide-y divide-white/5">
-            {data.creator.tokens.filter(tk => tk.contractAddress.toLowerCase() !== address.toLowerCase()).slice(0, 10).map((tk, i) => (
-              <a key={i} href={`/token/${tk.contractAddress}`} className="flex items-center justify-between px-6 py-3 hover:bg-white/5 transition">
-                <div className="flex items-center gap-3">
-                  <span className={`w-2 h-2 rounded-full ${tk.status === 'alive' ? 'bg-green-400' : tk.status === 'low-volume' ? 'bg-yellow-400' : 'bg-red-400'}`} />
-                  <div><p className="font-medium text-sm">{tk.symbol}</p><p className="text-xs text-gray-500">{tk.name}</p></div>
-                </div>
-                <div className="flex items-center gap-6 text-sm">
-                  <span>{fmt(tk.mcapNow)}</span>
-                  <span className="text-gray-500">{fmtHours(tk.ageHours)}</span>
-                </div>
-              </a>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <div className="mt-6 text-center">
+      <div className="text-center">
         <a href="/" className="text-purple-400 hover:underline text-sm">← Back to index</a>
       </div>
     </div>
