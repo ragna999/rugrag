@@ -1,12 +1,15 @@
-// Smart Money tracking layer
-// Combines DexScreener data + known wallet tracking
+// DexScreener — primary data source for market data
+// Clanker — only for token metadata and creator info
 
-const DEXSCREENER_API = 'https://api.dexscreener.com';
+const DEX_API = 'https://api.dexscreener.com';
 
-export interface TokenPair {
+export interface DexPair {
+  chainId: string;
+  dexId: string;
   pairAddress: string;
   baseToken: { address: string; name: string; symbol: string };
   quoteToken: { address: string; symbol: string };
+  priceNative: string;
   priceUsd: string;
   priceChange: { h24: number; h1: number; h6: number };
   volume: { h24: number; h6: number; h1: number };
@@ -17,122 +20,153 @@ export interface TokenPair {
   };
   liquidity: { usd: number; base: number; quote: number };
   marketCap: number;
+  fdv: number;
   pairCreatedAt: number;
-  dexId: string;
   url: string;
-  chainId?: string;
+  info?: { imageUrl?: string; websites?: { url: string }[]; socials?: { type: string; url: string }[] };
+  boosts?: { active: number };
 }
 
-export interface SmartMoneyWallet {
-  address: string;
-  label: string;
-  source: 'bankr' | 'whale' | 'known-trader';
-  tags: string[];
+// Get token profiles (recently updated/boosted tokens on Base)
+export async function getBoostedBaseTokens(): Promise<DexPair[]> {
+  try {
+    // Get latest token profiles
+    const res = await fetch(`${DEX_API}/token-profiles/latest/v1`);
+    if (!res.ok) return [];
+    const profiles = await res.json();
+
+    // Filter Base chain
+    const baseAddresses = profiles
+      .filter((p: { chainId: string }) => p.chainId === 'base')
+      .map((p: { tokenAddress: string }) => p.tokenAddress)
+      .slice(0, 15);
+
+    if (baseAddresses.length === 0) return [];
+
+    // Fetch pair data for these tokens
+    return getPairsByTokens(baseAddresses);
+  } catch {
+    return [];
+  }
 }
 
-// Known smart money wallets in the Base/Bankr ecosystem
-export const SMART_MONEY_WALLETS: SmartMoneyWallet[] = [
-  {
-    address: '0x2112b8456AC07c15fA31ddf3Bf713E77716fF3F9',
-    label: 'CLAWD Deployer',
-    source: 'bankr',
-    tags: ['bankr', 'deployer'],
-  },
-  {
-    address: '0x1e660A9A1f1F08AFEF9c03c96D66260122464CF2',
-    label: 'CLAWDXCLANKER Deployer',
-    source: 'bankr',
-    tags: ['bankr', 'deployer'],
-  },
-];
-
-// Fetch token pairs from DexScreener
-export async function getTokenPairs(tokenAddresses: string[]): Promise<TokenPair[]> {
-  if (tokenAddresses.length === 0) return [];
-  const batch = tokenAddresses.slice(0, 30);
-  const res = await fetch(`${DEXSCREENER_API}/latest/dex/tokens/${batch.join(',')}`);
-  if (!res.ok) return [];
-  const data = await res.json();
-  return data?.pairs?.filter((p: TokenPair) => p.dexId === 'uniswap') || [];
+// Get pairs for specific token addresses
+export async function getPairsByTokens(addresses: string[]): Promise<DexPair[]> {
+  if (addresses.length === 0) return [];
+  const batch = addresses.slice(0, 30);
+  try {
+    const res = await fetch(`${DEX_API}/latest/dex/tokens/${batch.join(',')}`);
+    if (!res.ok) return [];
+    const data = await res.json();
+    return (data?.pairs || [])
+      .filter((p: DexPair) => p.chainId === 'base' && p.dexId === 'uniswap')
+      .filter((p: DexPair) => parseFloat(p.priceUsd || '0') > 0);
+  } catch {
+    return [];
+  }
 }
 
-// Search DexScreener for tokens
-export async function searchTokens(query: string): Promise<TokenPair[]> {
-  const res = await fetch(`${DEXSCREENER_API}/latest/dex/search?q=${encodeURIComponent(query)}`);
-  if (!res.ok) return [];
-  const data = await res.json();
-  return data?.pairs?.filter((p: TokenPair) => p.chainId === 'base') || [];
+// Search for tokens on Base
+export async function searchDexTokens(query: string): Promise<DexPair[]> {
+  try {
+    const res = await fetch(`${DEX_API}/latest/dex/search?q=${encodeURIComponent(query)}`);
+    if (!res.ok) return [];
+    const data = await res.json();
+    return (data?.pairs || [])
+      .filter((p: DexPair) => p.chainId === 'base');
+  } catch {
+    return [];
+  }
 }
 
-// Get pair data by pair address
-export async function getPairByAddress(pairAddress: string): Promise<TokenPair | null> {
-  const res = await fetch(`${DEXSCREENER_API}/latest/dex/pairs/base/${pairAddress}`);
-  if (!res.ok) return null;
-  const data = await res.json();
-  return data?.pairs?.[0] || null;
+// Get pair by address
+export async function getDexPair(pairAddress: string): Promise<DexPair | null> {
+  try {
+    const res = await fetch(`${DEX_API}/latest/dex/pairs/base/${pairAddress}`);
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data?.pairs?.[0] || null;
+  } catch {
+    return null;
+  }
 }
 
-// Analyze buy/sell ratio to detect smart money sentiment
-export function analyzeTradeSentiment(pair: TokenPair): {
-  sentiment: 'bullish' | 'bearish' | 'neutral';
-  buyPressure: number;
-  signal: string;
-} {
+// Get trending tokens on Base from DexScreener
+export async function getDexTrending(): Promise<DexPair[]> {
+  try {
+    const res = await fetch(`${DEX_API}/token-profiles/latest/v1`);
+    if (!res.ok) return [];
+    const profiles = await res.json();
+
+    const baseAddresses = profiles
+      .filter((p: { chainId: string }) => p.chainId === 'base')
+      .map((p: { tokenAddress: string }) => p.tokenAddress)
+      .slice(0, 20);
+
+    if (baseAddresses.length === 0) return [];
+
+    const pairs = await getPairsByTokens(baseAddresses);
+
+    // Sort by volume (highest first)
+    return pairs.sort((a, b) => (b.volume?.h24 || 0) - (a.volume?.h24 || 0));
+  } catch {
+    return [];
+  }
+}
+
+// Analyze sentiment from buy/sell ratio
+export function analyzeSentiment(pair: DexPair) {
   const h1 = pair.txns?.h1;
-  if (!h1) return { sentiment: 'neutral', buyPressure: 0, signal: 'No data' };
+  if (!h1) return { type: 'neutral', pressure: 50, label: 'No data' };
 
   const total = h1.buys + h1.sells;
-  if (total === 0) return { sentiment: 'neutral', buyPressure: 0, signal: 'No trades' };
+  if (total === 0) return { type: 'neutral', pressure: 50, label: 'No trades' };
 
-  const buyRatio = h1.buys / total;
-  const buyPressure = Math.round(buyRatio * 100);
+  const ratio = h1.buys / total;
+  const pressure = Math.round(ratio * 100);
 
-  if (buyRatio >= 0.7) return { sentiment: 'bullish', buyPressure, signal: 'Heavy buying' };
-  if (buyRatio >= 0.55) return { sentiment: 'bullish', buyPressure, signal: 'More buyers' };
-  if (buyRatio <= 0.3) return { sentiment: 'bearish', buyPressure, signal: 'Heavy selling' };
-  if (buyRatio <= 0.45) return { sentiment: 'bearish', buyPressure, signal: 'More sellers' };
-  return { sentiment: 'neutral', buyPressure, signal: 'Balanced' };
+  if (ratio >= 0.7) return { type: 'bullish', pressure, label: 'Heavy buying' };
+  if (ratio >= 0.55) return { type: 'bullish', pressure, label: 'More buyers' };
+  if (ratio <= 0.3) return { type: 'bearish', pressure, label: 'Heavy selling' };
+  if (ratio <= 0.45) return { type: 'bearish', pressure, label: 'More sellers' };
+  return { type: 'neutral', pressure, label: 'Balanced' };
 }
 
-// Calculate "smart money score" based on token metrics
-export function calculateTokenScore(pair: TokenPair): number {
+// Calculate token quality score
+export function calcScore(pair: DexPair): number {
   let score = 50;
-
-  const vol24h = pair.volume?.h24 || 0;
+  const vol = pair.volume?.h24 || 0;
   const liq = pair.liquidity?.usd || 0;
   const txns = pair.txns?.h24;
-  const priceChange = pair.priceChange?.h24 || 0;
+  const change = pair.priceChange?.h24 || 0;
 
-  // Volume/Liquidity ratio (healthy = 0.1-2.0)
-  const vlRatio = liq > 0 ? vol24h / liq : 0;
-  if (vlRatio > 0.1 && vlRatio < 2) score += 10;
-  if (vlRatio > 2) score -= 10;
+  // Volume/Liquidity ratio
+  if (liq > 0) {
+    const ratio = vol / liq;
+    if (ratio > 0.1 && ratio < 2) score += 10;
+    if (ratio > 2) score -= 10;
+  }
 
-  // Buy/sell ratio
+  // Buy/sell
   if (txns) {
     const total = txns.buys + txns.sells;
     if (total > 0) {
-      const buyRatio = txns.buys / total;
-      if (buyRatio > 0.6) score += 15;
-      if (buyRatio < 0.4) score -= 10;
+      const buyR = txns.buys / total;
+      if (buyR > 0.6) score += 15;
+      if (buyR < 0.4) score -= 10;
     }
-    if (total > 100) score += 10;
-    if (total > 500) score += 5;
+    if (total > 50) score += 10;
   }
 
   // Price momentum
-  if (priceChange > 10) score += 10;
-  if (priceChange > 50) score += 5;
-  if (priceChange < -30) score -= 15;
+  if (change > 10) score += 10;
+  if (change > 50) score += 5;
+  if (change < -30) score -= 15;
 
   // Liquidity health
-  if (liq > 100000) score += 10;
-  if (liq > 500000) score += 5;
+  if (liq > 50000) score += 10;
+  if (liq > 200000) score += 5;
   if (liq < 5000) score -= 20;
-
-  // Market cap reasonableness
-  const mcap = pair.marketCap || 0;
-  if (mcap > 10000 && mcap < 10000000) score += 5;
 
   return Math.max(0, Math.min(100, score));
 }

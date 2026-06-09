@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getTokenByAddress, getTokensByCreator, normalizeMarket } from '@/lib/clanker';
+import { getTokenByAddress, getTokensByCreator } from '@/lib/clanker';
 import { analyzeCreator } from '@/lib/scorer';
 
 export async function GET(
@@ -17,13 +17,13 @@ export async function GET(
       return NextResponse.json({ error: 'Token not found' }, { status: 404 });
     }
 
-    const market = normalizeMarket(token);
+    const m = token.related?.market;
     const deployer = token.msg_sender;
 
     let creator = null;
     if (deployer) {
       try {
-        const searchResult = await getTokensByCreator(deployer, 50);
+        const searchResult = await getTokensByCreator(deployer, 20);
         creator = await analyzeCreator(
           searchResult.tokens || [],
           deployer,
@@ -44,7 +44,12 @@ export async function GET(
         symbol: token.symbol,
         contractAddress: token.contract_address,
         deployedAt: token.created_at,
-        market,
+        market: {
+          mcap: m?.marketCap || 0,
+          price: m?.priceUsd || 0,
+          volume24h: m?.volume24h || 0,
+          priceChange24h: m?.priceChangePercent24h || 0,
+        },
         pair: token.pair,
       },
       creator,
